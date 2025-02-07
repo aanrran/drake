@@ -1,0 +1,204 @@
+load("//tools/install:check_licenses.bzl", "check_licenses")
+load("//tools/install:install.bzl", "install")
+load("//tools/lint:lint.bzl", "add_lint_tests")
+load(
+    "//tools/skylark:drake_py.bzl",
+    "drake_py_binary",
+    "drake_py_library",
+    "drake_py_test",
+)
+
+drake_py_library(
+    name = "module_py",
+    srcs = ["__init__.py"],
+    visibility = [":__subpackages__"],
+    deps = ["//tools:module_py"],
+)
+
+drake_py_binary(
+    name = "mirror_to_s3",
+    srcs = [
+        "metadata.py",
+        "mirror_to_s3.py",
+    ],
+    visibility = ["//visibility:private"],
+    deps = [":module_py"],
+)
+
+drake_py_binary(
+    name = "new_release",
+    srcs = [
+        "metadata.py",
+        "new_release.py",
+    ],
+    visibility = ["//visibility:private"],
+    deps = [
+        ":module_py",
+        "@github3_py_internal//:github3_py",
+    ],
+)
+
+drake_py_binary(
+    name = "vendor_cxx",
+    srcs = ["vendor_cxx.py"],
+    visibility = [
+        # These should all be of the form "@foo_internal//:__subpackages__".
+        "@clarabel_cpp_internal//:__subpackages__",
+        "@clp_internal//:__subpackages__",
+        "@coinutils_internal//:__subpackages__",
+        "@conex_internal//:__subpackages__",
+        "@fcl_internal//:__subpackages__",
+        "@gz_math_internal//:__subpackages__",
+        "@gz_utils_internal//:__subpackages__",
+        "@ipopt_internal//:__subpackages__",
+        "@msgpack_internal//:__subpackages__",
+        "@nlopt_internal//:__subpackages__",
+        "@qhull_internal//:__subpackages__",
+        "@sdformat_internal//:__subpackages__",
+        "@tinygltf_internal//:__subpackages__",
+        "@tinyobjloader_internal//:__subpackages__",
+        "@yaml_cpp_internal//:__subpackages__",
+    ],
+    deps = [":module_py"],
+)
+
+drake_py_test(
+    name = "vendor_cxx_test",
+    srcs = [
+        "vendor_cxx.py",
+        "vendor_cxx_test.py",
+    ],
+    allow_import_unittest = True,
+    deps = [":module_py"],
+)
+
+drake_py_test(
+    name = "workspace_bzlmod_sync_test",
+    srcs = ["workspace_bzlmod_sync_test.py"],
+    allow_import_unittest = True,
+    data = [
+        ":default.bzl",
+        "//:MODULE.bazel",
+        "//:WORKSPACE.bzlmod",
+        "//tools/workspace/bazel_skylib:repository.bzl",
+        "//tools/workspace/build_bazel_apple_support:repository.bzl",
+        "//tools/workspace/platforms:repository.bzl",
+        "//tools/workspace/rules_cc:repository.bzl",
+        "//tools/workspace/rules_java:repository.bzl",
+        "//tools/workspace/rules_license:repository.bzl",
+        "//tools/workspace/rules_rust:repository.bzl",
+        "//tools/workspace/rules_shell:repository.bzl",
+    ],
+    tags = ["lint"],
+    deps = [
+        ":module_py",
+        "@rules_python//python/runfiles",
+    ],
+)
+
+drake_py_binary(
+    name = "cmake_configure_file",
+    srcs = ["cmake_configure_file.py"],
+    visibility = ["//visibility:public"],
+)
+
+_DRAKE_EXTERNAL_PACKAGE_INSTALLS = ["@%s//:install" % p for p in [
+    "ccd_internal",
+    "clp_internal",
+    "coinutils_internal",
+    "com_jidesoft_jide_oss",
+    "common_robotics_utilities_internal",
+    "commons_io",
+    "curl_internal",
+    "fcl_internal",
+    "gklib_internal",
+    "gz_math_internal",
+    "gz_utils_internal",
+    "ipopt_internal",
+    "lcm",
+    "libpng_internal",
+    "libtiff_internal",
+    "meshcat",
+    "metis_internal",
+    "msgpack_internal",
+    "net_sf_jchart2d",
+    "nanoflann_internal",
+    "nlohmann_internal",
+    "nlopt_internal",
+    "org_apache_xmlgraphics_commons",
+    "picosha2_internal",
+    "poisson_disk_sampling_internal",
+    "pybind11",
+    "qhull_internal",
+    "sdformat_internal",
+    "spral_internal",
+    "statsjs",
+    "stduuid_internal",
+    "suitesparse_internal",
+    "tinygltf_internal",
+    "tinyobjloader_internal",
+    "tinyxml2_internal",
+    "usockets_internal",
+    "uwebsockets_internal",
+    "vtk_internal",
+    "yaml_cpp_internal",
+]] + ["//tools/workspace/%s:install" % p for p in [
+    "abseil_cpp_internal",
+    "conex_internal",
+    "eigen",
+    "fmt",
+    "gflags",
+    "highway_internal",
+    "libjpeg_turbo_internal",
+    "spdlog",
+]] + select({
+    "//tools/workspace/csdp_internal:enabled": ["@csdp_internal//:install"],
+    "//conditions:default": [],
+}) + select({
+    "//tools/workspace/clarabel_cpp_internal:enabled": [
+        "//tools/workspace/crate_universe:install",
+        "@clarabel_cpp_internal//:install",
+    ],
+    "//conditions:default": [],
+}) + select({
+    "//tools/workspace/gurobi:enabled": ["@gurobi//:install"],
+    "//conditions:default": [],
+}) + select({
+    "//tools/workspace/mosek:enabled": ["@mosek//:install"],
+    "//conditions:default": [],
+}) + select({
+    "//tools/workspace/snopt:enabled": ["//tools/workspace/snopt:install"],
+    "//conditions:default": [],
+}) + select({
+    "//tools/workspace/osqp_internal:enabled": [
+        "@osqp_internal//:install",
+        "@qdldl_internal//:install",
+    ],
+    "//conditions:default": [],
+}) + select({
+    "//tools/workspace/scs_internal:enabled": ["@scs_internal//:install"],
+    "//conditions:default": [],
+}) + select({
+    "//tools:with_usd": ["@onetbb_internal//:install"],
+    "//conditions:default": [],
+})
+
+install(
+    name = "install_external_packages",
+    visibility = ["//:__pkg__"],
+    deps = _DRAKE_EXTERNAL_PACKAGE_INSTALLS,
+)
+
+check_licenses(
+    _DRAKE_EXTERNAL_PACKAGE_INSTALLS,
+    ignore_labels = [
+        # Jar files have their license notices embedded into the jar already;
+        # there is no need for them to install a separate license file.
+        "@com_jidesoft_jide_oss//:install",
+        "@commons_io//:install",
+        "@net_sf_jchart2d//:install",
+        "@org_apache_xmlgraphics_commons//:install",
+    ],
+)
+
+add_lint_tests()

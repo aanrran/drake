@@ -1,0 +1,16 @@
+load("//tools/lint:lint.bzl", "add_lint_tests")
+load("//tools/skylark:drake_py.bzl", "drake_py_unittest")
+
+PYTHON_SCRIPTS = [
+    "ideal_stiction.py",
+    "stiction.py",
+]
+
+drake_py_unittest(
+    name = "scripts_test",
+    data = PYTHON_SCRIPTS,
+)
+
+add_lint_tests(
+    python_lint_extra_srcs = PYTHON_SCRIPTS,
+)

@@ -1,0 +1,11 @@
+# -*- bazel -*-
+
+load("@drake//tools/skylark:cc.bzl", "cc_library")
+
+package(default_visibility = ["//visibility:public"])
+
+# No targets should depend on @libpfm.
+cc_library(
+    name = "libpfm",
+    srcs = ["missing-libpfm.cc"],
+)

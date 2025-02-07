@@ -1,0 +1,15 @@
+# -*- bazel -*-
+
+load("@drake//tools/skylark:py.bzl", "py_library")
+
+licenses(["notice"])  # NCSA
+
+py_library(
+    name = "clang",
+    srcs = [
+        "clang/__init__.py",
+        "clang/cindex.py",
+        "clang/enumerations.py",
+    ],
+    visibility = ["//visibility:public"],
+)

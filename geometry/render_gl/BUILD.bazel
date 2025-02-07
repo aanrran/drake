@@ -1,0 +1,394 @@
+load("//tools/lint:lint.bzl", "add_lint_tests")
+load(
+    "//tools/skylark:drake_cc.bzl",
+    "drake_cc_googletest",
+    "drake_cc_googletest_linux_only",
+    "drake_cc_library",
+    "drake_cc_library_linux_only",
+    "drake_cc_package_library",
+)
+load("//tools/skylark:test_tags.bzl", "vtk_test_tags")
+
+# This render_gl package is only implemented on Linux.  For macOS, only the
+# factory is available and it will always throw an exception.  For Linux, the
+# factory is the sole public entry point, even though the implementation is
+# made up of several other distinct components.
+#
+# Because the components are only conditionally available, and because we do
+# not want Drake's installed headers to depend on GL headers, we only install
+# the header for the factory and nothing else.
+#
+# Similarly, only the package-level library //geometry/render_gl is public as a
+# Bazel target; all of the other targets are private.
+
+package(default_visibility = ["//visibility:private"])
+
+drake_cc_package_library(
+    name = "render_gl",
+    visibility = ["//visibility:public"],
+    deps = [
+        ":factory",
+        ":render_engine_gl_params",
+    ],
+)
+
+drake_cc_library(
+    name = "internal_loaders",
+    srcs = ["internal_loaders.cc"],
+    hdrs = ["internal_loaders.h"],
+    internal = True,
+    visibility = [
+        "//geometry/render_vtk:__pkg__",
+    ],
+    deps = [
+        "//common:essential",
+        "//common:unused",
+    ] + select({
+        "@drake//tools/skylark:linux": [
+            "@vtk_internal//:vtkglad",
+            "@x11",
+        ],
+        "//conditions:default": [],
+    }),
+)
+
+drake_cc_library_linux_only(
+    name = "internal_opengl_context",
+    srcs = ["internal_opengl_context.cc"],
+    hdrs = [
+        "internal_opengl_context.h",
+        "internal_opengl_includes.h",
+    ],
+    deps = [
+        ":internal_loaders",
+        "//common:essential",
+        "//common:scope_exit",
+        "//common:unused",
+    ],
+)
+
+drake_cc_library_linux_only(
+    name = "internal_opengl_geometry",
+    hdrs = ["internal_opengl_geometry.h"],
+    deps = [
+        ":internal_opengl_context",
+        ":internal_shader_program_data",
+        "//geometry/render:render_label",
+        "//math:geometric_transform",
+    ],
+)
+
+drake_cc_library_linux_only(
+    name = "internal_render_engine_gl",
+    srcs = [
+        "internal_render_engine_gl.cc",
+    ],
+    hdrs = [
+        "internal_buffer_dim.h",
+        "internal_render_engine_gl.h",
+    ],
+    deps = [
+        ":internal_opengl_context",
+        ":internal_opengl_geometry",
+        ":internal_shader_program",
+        ":internal_shape_meshes",
+        ":internal_texture_library",
+        ":render_engine_gl_params",
+        "//common:diagnostic_policy",
+        "//common:string_container",
+        "//geometry/proximity:polygon_to_triangle_mesh",
+        "//geometry/render:render_engine",
+        "//geometry/render:render_mesh",
+        "//systems/sensors:image",
+        "@tinygltf_internal//:tinygltf",
+    ],
+)
+
+drake_cc_library(
+    name = "factory",
+    srcs = select({
+        "//tools/cc_toolchain:apple": [],
+        "//conditions:default": [
+            "factory.cc",
+        ],
+    }),
+    hdrs = [
+        "factory.h",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":render_engine_gl_params",
+        "//geometry/render:render_engine",
+    ],
+    implementation_deps = select({
+        "//tools/cc_toolchain:apple": [
+            ":apple_only_no_factory",
+        ],
+        "//conditions:default": [
+            ":internal_render_engine_gl",
+        ],
+    }),
+)
+
+drake_cc_library(
+    name = "apple_only_no_factory",
+    srcs = [
+        # Always compile this on every platform, to ensure it is well-formed.
+        "no_factory.cc",
+    ],
+    hdrs = [
+        "factory.h",
+    ],
+    internal = True,
+    visibility = ["//visibility:private"],
+    deps = [
+        ":render_engine_gl_params",
+        "//geometry/render:render_engine",
+    ],
+)
+
+drake_cc_library(
+    name = "render_engine_gl_params",
+    hdrs = [
+        "render_engine_gl_params.h",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//common:name_value",
+        "//geometry:rgba",
+        "//geometry/render:light_parameter",
+        "//geometry/render:render_label",
+    ],
+)
+
+drake_cc_library_linux_only(
+    name = "internal_shader_program",
+    srcs = ["internal_shader_program.cc"],
+    hdrs = [
+        "internal_shader_program.h",
+    ],
+    deps = [
+        ":internal_opengl_context",
+        ":internal_shader_program_data",
+        "//common:essential",
+        "//geometry:geometry_roles",
+        "//geometry/render:light_parameter",
+        "//geometry/render:render_engine",
+        "//math:geometric_transform",
+    ],
+)
+
+drake_cc_library_linux_only(
+    name = "internal_shader_program_data",
+    hdrs = ["internal_shader_program_data.h"],
+    deps = [
+        "//common:copyable_unique_ptr",
+        "//common:identifier",
+        "//common:value",
+    ],
+)
+
+drake_cc_library_linux_only(
+    name = "internal_shape_meshes",
+    srcs = ["internal_shape_meshes.cc"],
+    hdrs = ["internal_shape_meshes.h"],
+    deps = [
+        ":internal_opengl_context",
+        "//geometry/render:render_mesh",
+    ],
+    implementation_deps = [
+        "//common:essential",
+        "@tinyobjloader_internal//:tinyobjloader",
+    ],
+)
+
+drake_cc_library_linux_only(
+    name = "internal_texture_library",
+    srcs = ["internal_texture_library.cc"],
+    hdrs = ["internal_texture_library.h"],
+    deps = [
+        ":internal_opengl_context",
+        "//common:essential",
+        "//common:string_container",
+    ],
+    implementation_deps = [
+        "//systems/sensors:image_io",
+        "@vtk_internal//:vtkCommonCore",
+        "@vtk_internal//:vtkCommonDataModel",
+        "@vtk_internal//:vtkIOImage",
+        "@vtk_internal//:vtkImagingCore",
+    ],
+)
+
+drake_cc_googletest_linux_only(
+    name = "internal_buffer_dim_test",
+    deps = [
+        ":internal_render_engine_gl",
+    ],
+)
+
+drake_cc_googletest_linux_only(
+    name = "internal_opengl_context_test",
+    display = True,
+    tags = [
+        # GLX functions show up with bad reads, bad writes, possibly lost, and
+        # definitely lost.  We will investiate soon but for now we'll omit the
+        # memcheck tests in order to make progress on related code.
+        # TODO(#12962) Investigate, fix or suppress, then re-enable this test.
+        "no_memcheck",
+    ],
+    deps = [
+        ":internal_opengl_context",
+    ],
+)
+
+drake_cc_googletest_linux_only(
+    name = "internal_opengl_geometry_test",
+    deps = [
+        ":internal_opengl_geometry",
+        "//common/test_utilities:eigen_matrix_compare",
+        "//common/test_utilities:expect_throws_message",
+    ],
+)
+
+drake_cc_googletest_linux_only(
+    name = "internal_render_engine_gl_test",
+    data = [
+        "//examples/scene_graph:models",
+        "//geometry/render:test_models",
+    ] + glob(["test/*.png"]),
+    display = True,
+    tags = vtk_test_tags(),
+    deps = [
+        ":internal_render_engine_gl",
+        "//common:find_resource",
+        "//common:temp_directory",
+        "//common/test_utilities:expect_no_throw",
+        "//common/test_utilities:expect_throws_message",
+        "//geometry:read_gltf_to_memory",
+        "//geometry/render:render_label",
+        "//systems/sensors:image_io",
+        "//systems/sensors/test_utilities:image_compare",
+        "@gflags",
+        "@nlohmann_internal//:nlohmann",
+        "@tinygltf_internal//:tinygltf",
+        "@vtk_internal//:vtkCommonCore",
+        "@vtk_internal//:vtkCommonDataModel",
+        "@vtk_internal//:vtkIOImage",
+    ],
+)
+
+drake_cc_googletest(
+    name = "internal_no_render_engine_gl_test",
+    args = select({
+        "//tools/cc_toolchain:linux": ["--gtest_filter=-*"],
+        "//conditions:default": [],
+    }),
+    deps = [
+        ":factory",
+        "//common/test_utilities:expect_throws_message",
+    ],
+)
+
+drake_cc_googletest_linux_only(
+    name = "internal_shape_meshes_test",
+    data = [
+        "//geometry/render:test_models",
+    ],
+    deps = [
+        ":internal_shape_meshes",
+        "//common:find_resource",
+        "//common/test_utilities:eigen_matrix_compare",
+        "//common/test_utilities:expect_throws_message",
+        "//math:geometric_transform",
+    ],
+)
+
+drake_cc_googletest_linux_only(
+    name = "internal_shader_program_test",
+    display = True,
+    tags = vtk_test_tags(),
+    deps = [
+        ":internal_opengl_context",
+        ":internal_shader_program",
+        "//common:temp_directory",
+        "//common/test_utilities:eigen_matrix_compare",
+        "//common/test_utilities:expect_throws_message",
+    ],
+)
+
+drake_cc_googletest_linux_only(
+    name = "thread_test",
+    data = [
+        "//geometry/render:test_models",
+    ],
+    display = True,
+    tags = vtk_test_tags() + [
+        # We launch up to 3 child tasks.
+        "cpu:4",
+        # Generally, GL driver shared libraries are not tsan-clean.
+        # Instead we rely on functional testing to detect threading errors.
+        "no_tsan",
+    ],
+    deps = [
+        ":factory",
+        "//common/yaml",
+        "//geometry:geometry_instance",
+        "//systems/sensors:image_writer",
+    ],
+)
+
+drake_cc_googletest_linux_only(
+    name = "multithread_safety_test",
+    data = [
+        "//geometry/render:test_models",
+    ],
+    display = True,
+    # TODO(#21420) This test is currently broken on Ubuntu 24.04 ("Noble").
+    enable_condition = "//tools:ubuntu_jammy",
+    tags = vtk_test_tags() + [
+        # We launch up to 3 child tasks.
+        "cpu:4",
+        # Generally, GL driver shared libraries are not tsan-clean.
+        # Instead we rely on functional testing to detect threading errors.
+        "no_tsan",
+    ],
+    deps = [
+        ":factory",
+        ":internal_render_engine_gl",
+        ":internal_texture_library",
+        "//common:find_resource",
+        "//common:overloaded",
+        "//common/test_utilities:eigen_matrix_compare",
+        "//systems/sensors:image",
+        "//systems/sensors:image_writer",
+    ],
+)
+
+drake_cc_googletest_linux_only(
+    name = "internal_texture_library_test",
+    data = [
+        "//geometry/render:test_models",
+    ],
+    tags = vtk_test_tags(),
+    deps = [
+        ":internal_texture_library",
+        "//common:find_resource",
+        "//common:temp_directory",
+    ],
+)
+
+drake_cc_googletest(
+    name = "render_engine_gl_params_test",
+    deps = [
+        ":render_engine_gl_params",
+        "//common/yaml",
+    ],
+)
+
+add_lint_tests(
+    cpplint_extra_srcs = [
+        "no_factory.cc",
+        "factory.cc",
+    ],
+)
