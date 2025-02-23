@@ -5,7 +5,7 @@ package(default_visibility = ["//visibility:public"])
 
 drake_cc_binary(
     name = "unitree_g1_run",
-    srcs = ["unitree_g1_run.cc"],
+    srcs = ["src/unitree_g1_run.cc"],
     data = ["@drake_models//:atlas",
         "robots/g1_description/g1_23dof.urdf",
         "robots/g1_description/meshes",],
