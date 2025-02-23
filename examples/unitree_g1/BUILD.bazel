@@ -3,13 +3,35 @@ load("//tools/skylark:drake_cc.bzl", "drake_cc_binary")
 
 package(default_visibility = ["//visibility:public"])
 
+cc_library(
+    name = "controller_base",
+    srcs = ["src/controller_base.cc"],
+    hdrs = ["include/controller_base.h"],
+    includes = ["include"],
+    deps = [
+        "//multibody/plant:plant",
+        "//systems/framework",
+    ],
+)
+
+cc_library(
+    name = "unitree_g1_controller",
+    srcs = ["src/unitree_g1_controller.cc"],
+    hdrs = ["include/unitree_g1_controller.h"],
+    includes = ["include"],
+    deps = [
+        ":controller_base",  # Add dependency
+        "//multibody/plant:plant",
+        "//systems/framework",
+    ],
+)
+
+
 drake_cc_binary(
     name = "unitree_g1_run",
     srcs = ["src/unitree_g1_run.cc"],
-    data = ["@drake_models//:atlas",
-        "robots/g1_description/g1_23dof.urdf",
-        "robots/g1_description/meshes",],
     deps = [
+        ":unitree_g1_controller",
         "//multibody/parsing",
         "//systems/analysis:simulator",
         "//systems/framework:diagram",
@@ -17,5 +39,6 @@ drake_cc_binary(
         "@gflags",
     ],
 )
+
 
 add_lint_tests()

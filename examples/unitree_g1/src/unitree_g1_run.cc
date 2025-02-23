@@ -1,5 +1,7 @@
+// unitree_g1_run.cc
 #include <memory>
 
+#include "unitree_g1_controller.h"
 #include <Eigen/Dense>
 #include <gflags/gflags.h>
 
@@ -37,30 +39,23 @@ int do_main() {
       "examples/unitree_g1/robots/g1_description/g1_23dof.urdf";
   multibody::Parser parser(&plant);
   auto model_instance = parser.AddModels(urdf_path).at(0);
-  // auto model_instance =
-  // parser.AddModelsFromUrl("package://drake_models/atlas/atlas_convex_hull.urdf").at(0);
 
   // Set the initial pose slightly above the ground
-  const double initial_z_offset = 0.8;  // Adjust as needed unit(m)
+  const double initial_z_offset = 0.8;
   plant.SetDefaultFreeBodyPose(
       plant.GetBodyByName("pelvis", model_instance),
       RigidTransformd(Translation3d(0, 0, initial_z_offset)));
 
   // Add the ground plane
-
-  const double ground_size = 10.0;  // Large enough to cover the scene
-  const double ground_thickness =
-      0.1;  // Small thickness to approximate HalfSpace
+  const double ground_size = 10.0;
+  const double ground_thickness = 0.1;
 
   plant.RegisterVisualGeometry(
       plant.world_body(),
       RigidTransformd(Eigen::Vector3d(0, 0, -ground_thickness)),
       geometry::Box(ground_size, ground_size, ground_thickness),
-      "GroundVisualGeometry",
-      Vector4<double>(0.2, 0.2, 0.2, 1.0));  // Dark grey color (R, G, B, Alpha)
+      "GroundVisualGeometry", Vector4<double>(0.2, 0.2, 0.2, 1.0));
 
-  // 0.2 → Low friction (plastic on metal, smooth surfaces).
-  // 0.8 - 1.0 → High friction (rubber on asphalt, rough surfaces).
   const double static_friction = 0.8;
   const double dynamic_friction = 0.6;
   plant.RegisterCollisionGeometry(
@@ -70,11 +65,19 @@ int do_main() {
       "GroundCollision",
       multibody::CoulombFriction<double>(static_friction, dynamic_friction));
 
-  plant.mutable_gravity_field().set_gravity_vector(Eigen::Vector3d(0, 0, -9.81));  // Default -9.81 for Earth gravity, -1.625 for moon
-
+  plant.mutable_gravity_field().set_gravity_vector(
+      Eigen::Vector3d(0, 0, -9.81));
   plant.Finalize();
 
   visualization::AddDefaultVisualization(&builder);
+
+  // Add controller
+  auto controller = builder.AddSystem<UnitreeG1Controller>(&plant);
+  // Connect state output of the plant to controller input
+  builder.Connect(plant.get_state_output_port(), controller->get_input_port());
+
+  // Connect controller output to the actuation input of the plant
+  builder.Connect(controller->get_output_port(), plant.get_actuation_input_port());
 
   auto diagram = builder.Build();
   auto simulator = std::make_unique<systems::Simulator<double>>(*diagram);
