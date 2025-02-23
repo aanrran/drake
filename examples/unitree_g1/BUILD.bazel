@@ -1,0 +1,21 @@
+load("//tools/lint:lint.bzl", "add_lint_tests")
+load("//tools/skylark:drake_cc.bzl", "drake_cc_binary")
+
+package(default_visibility = ["//visibility:public"])
+
+drake_cc_binary(
+    name = "unitree_g1_run",
+    srcs = ["unitree_g1_run.cc"],
+    data = ["@drake_models//:atlas",
+        "robots/g1_description/g1_23dof.urdf",
+        "robots/g1_description/meshes",],
+    deps = [
+        "//multibody/parsing",
+        "//systems/analysis:simulator",
+        "//systems/framework:diagram",
+        "//visualization:visualization_config_functions",
+        "@gflags",
+    ],
+)
+
+add_lint_tests()
