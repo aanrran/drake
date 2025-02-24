@@ -21,7 +21,7 @@ drake_cc_binary(
         "//systems/primitives:constant_vector_source",
         "//systems/primitives:matrix_gain",
         "//systems/primitives:saturation",
-        "//systems/primitives:adder",  # ✅ Added missing dependency for Adder
+        "//systems/primitives:adder",
         "//visualization:visualization_config_functions",
         "@gflags",
     ],
