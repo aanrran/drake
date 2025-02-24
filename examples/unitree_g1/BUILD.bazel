@@ -6,13 +6,22 @@ package(default_visibility = ["//visibility:public"])
 drake_cc_binary(
     name = "unitree_g1_run",
     srcs = ["unitree_g1_run.cc"],
-    data = ["@drake_models//:atlas",
+    data = [
         "robots/g1_description/g1_23dof.urdf",
-        "robots/g1_description/meshes",],
+        "robots/g1_description/meshes",
+    ],
     deps = [
-        "//multibody/parsing",
+        "//geometry:scene_graph",
+        "//multibody/parsing:parser",
+        "//multibody/plant",
+        "//multibody/plant:multibody_plant_config_functions",
         "//systems/analysis:simulator",
-        "//systems/framework:diagram",
+        "//systems/controllers:pid_controller",
+        "//systems/framework:diagram_builder",
+        "//systems/primitives:constant_vector_source",
+        "//systems/primitives:matrix_gain",
+        "//systems/primitives:saturation",
+        "//systems/primitives:adder",  # ✅ Added missing dependency for Adder
         "//visualization:visualization_config_functions",
         "@gflags",
     ],
