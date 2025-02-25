@@ -41,7 +41,9 @@ int do_main() {
   DiagramBuilder<double> builder;
 
   // ✅ 1. Create MultibodyPlant and SceneGraph
-  auto [plant, scene_graph] = multibody::AddMultibodyPlantSceneGraph(&builder, 0.001);
+  const double plant_frequency = 100.0;  // Run at 100 Hz
+  const double time_step = 1.0 / plant_frequency;
+  auto [plant, scene_graph] = multibody::AddMultibodyPlantSceneGraph(&builder, time_step);
 
   // ✅ 2. Load the Unitree G1 model from URDF
   const std::string urdf_path = "examples/unitree_g1/robots/g1_description/g1_23dof.urdf";
@@ -84,6 +86,8 @@ int do_main() {
       "GroundCollision",
       multibody::CoulombFriction<double>(static_friction, dynamic_friction));
 
+    // add gravity adjustment feature
+    plant.mutable_gravity_field().set_gravity_vector(Eigen::Vector3d(0, 0, -9.81));  // Default -9.81 for Earth gravity, -1.625 for moon
   // ✅ 6. Finalize Plant Before Using Actuated DOFs
   plant.Finalize();
 
@@ -96,9 +100,9 @@ int do_main() {
   }
 
   // ✅ 8. Setup PID Controller
-  VectorXd Kp = VectorXd::Constant(num_actuated_dofs, 20.0);
+  VectorXd Kp = VectorXd::Constant(num_actuated_dofs, 0.0);
   VectorXd Ki = VectorXd::Zero(num_actuated_dofs);
-  VectorXd Kd = VectorXd::Constant(num_actuated_dofs, 2.0);
+  VectorXd Kd = VectorXd::Constant(num_actuated_dofs, 0.0);
   auto pid_controller = builder.AddSystem<PidController<double>>(Kp, Ki, Kd);
 
   // ✅ 9. Setup Desired Joint States (Hold at Zero)
@@ -125,7 +129,7 @@ int do_main() {
   auto plant_context = plant.CreateDefaultContext();
   VectorXd tau_g_full = plant.CalcGravityGeneralizedForces(*plant_context);
   Eigen::MatrixXd B = plant.MakeActuationMatrix();
-  VectorXd tau_g = B.transpose() * tau_g_full;
+  VectorXd tau_g = - B.transpose() * tau_g_full;
   auto gravity_compensation = builder.AddSystem<ConstantVectorSource<double>>(tau_g);
 
   // ✅ 13. Sum PD Controller Output and Gravity Compensation
