@@ -1,4 +1,4 @@
-#include "examples/unitree_g1/helper/plant_helpers.h"
+#include "examples/unitree_g1/includes/plant_helpers.h"
 #include "drake/math/rigid_transform.h"  // ✅ Ensure the math namespace is included
 #include "drake/geometry/scene_graph.h"
 

@@ -5,7 +5,7 @@ package(default_visibility = ["//visibility:public"])
 
 cc_library(
     name = "plant_helpers",
-    hdrs = ["helper/plant_helpers.h"],
+    hdrs = ["includes/plant_helpers.h"],
     srcs = ["helper/plant_helpers.cc"],
     deps = [
         "//multibody/plant",
@@ -13,7 +13,22 @@ cc_library(
         "//math", 
     ],
 )
-
+cc_library(
+    name = "pd_controller",
+    hdrs = ["includes/pd_controller.h"],
+    srcs = ["controllers/pd_controller.cc"],
+    deps = [
+        "//multibody/plant",
+        "//systems/controllers:inverse_dynamics",
+        "//systems/controllers:pid_controller",
+        "//systems/controllers:state_feedback_controller_interface",
+        "//systems/framework:diagram_builder",
+        "//systems/framework:leaf_system",
+        "//systems/primitives:adder",
+        "//systems/primitives:pass_through",
+        "//systems/primitives:matrix_gain",
+    ],
+)
 
 drake_cc_binary(
     name = "unitree_g1_run",
@@ -23,6 +38,7 @@ drake_cc_binary(
         "robots/g1_description/meshes",
     ],
     deps = [
+        "//examples/unitree_g1:pd_controller", 
         "//examples/unitree_g1:plant_helpers", 
         "//geometry:scene_graph",
         "//multibody/parsing:parser",
