@@ -42,6 +42,7 @@ namespace {
   
   using helper::AddActuatorsToPlant;
   using helper::AddGroundPlaneToPlant;
+  using helper::StateSelectionMatrix;
 
   using systems::controllers::StateFeedbackControllerInterface;
 
@@ -85,9 +86,9 @@ int do_main() {
 
   // ✅ 8. Setup PID Controller
   const int num_q = plant.num_positions();
-  ;
+
   const int num_v = plant.num_velocities();
-  ;
+
   const int num_x = num_q + num_v;
   const int num_actuated_dofs = plant.num_actuated_dofs();
 
@@ -97,9 +98,9 @@ int do_main() {
   VectorXd Kp = VectorXd::Constant(num_actuated_dofs, 5.2);
   VectorXd Ki = VectorXd::Zero(num_actuated_dofs);
   VectorXd Kd = VectorXd::Constant(num_actuated_dofs, 0.7);
-//   auto pid_controller = builder.AddSystem<PidController<double>>(Kp, Ki, Kd);
+  auto pid_controller = builder.AddSystem<PidController<double>>(Kp, Ki, Kd);
 
-    StateFeedbackControllerInterface<double>* pid_controller = builder.AddSystem<PD_Controller<double>>(plant, Kp, Kd);
+    // StateFeedbackControllerInterface<double>* pid_controller = builder.AddSystem<PD_Controller<double>>(plant, Kp, Kd);
 
   // ✅ 9. Setup Desired Joint States (Hold at Zero)
   VectorXd desired_state = VectorXd::Zero(2 * num_actuated_dofs);
@@ -137,14 +138,7 @@ int do_main() {
                   pid_controller->get_input_port_desired_state());
 
   // ✅ 10. Setup State Selection Matrix for Actuated Joints
-  Eigen::MatrixXd selection_matrix =
-      Eigen::MatrixXd::Zero(2 * num_actuated_dofs, num_x);
-  // ✅ Extract actuated positions & velocities (skipping floating base)
-  for (int i = 0; i < num_actuated_dofs; ++i) {
-    selection_matrix(i, num_q - num_actuated_dofs + i) = 1.0;  // Positions
-    selection_matrix(num_actuated_dofs + i, num_q + num_v - num_actuated_dofs +
-                                                i) = 1.0;  // Velocities
-  }
+  Eigen::MatrixXd selection_matrix = StateSelectionMatrix(plant);
 
   auto state_selector = builder.AddSystem<MatrixGain>(selection_matrix);
 
@@ -154,9 +148,6 @@ int do_main() {
   builder.Connect(state_selector->get_output_port(),
                   pid_controller->get_input_port_estimated_state());
 
-// VectorXd feedforward_torque = VectorXd::Zero(num_actuated_dofs);
-// auto feedforward_source = builder.AddSystem<ConstantVectorSource<double>>(feedforward_torque);
-// builder.Connect(feedforward_source->get_output_port(), pid_controller->get_input_port_commanded_torque());
 
   // ✅ Compute Actuation Matrix
   auto plant_context = plant.CreateDefaultContext();

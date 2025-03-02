@@ -30,7 +30,7 @@ void AddActuatorsToPlant(multibody::MultibodyPlant<double>& plant) {
           for (int i = 0; i < plant.num_joints(); ++i) {
               const auto& joint = plant.get_joint(drake::multibody::JointIndex(i));
       
-              if (joint.num_positions() == 1 && joint.num_velocities() == 1) { // Only consider 1-DOF joints
+              if (joint.num_positions() >= 1 && joint.num_velocities() >= 1) { // Only consider 1-DOF joints
                 const auto& actuator = plant.AddJointActuator(joint.name() + "_actuator", joint);
           
                   // ✅ Extract RPY from parent frame in URDF
@@ -91,6 +91,25 @@ void AddGroundPlaneToPlant(multibody::MultibodyPlant<double>& plant) {
         geometry::Box(ground_size, ground_size, ground_thickness),
         "GroundCollision",
         multibody::CoulombFriction<double>(static_friction, dynamic_friction));
+}
+
+Eigen::MatrixXd StateSelectionMatrix(multibody::MultibodyPlant<double>& plant) {
+    const int num_q = plant.num_positions();
+
+    const int num_v = plant.num_velocities();
+  
+    const int num_x = num_q + num_v;
+
+    const int num_actuated_dofs = plant.num_actuated_dofs();
+  
+    Eigen::MatrixXd selection_matrix = Eigen::MatrixXd::Zero(2 * num_actuated_dofs, num_x);
+    // ✅ Extract actuated positions & velocities (skipping floating base)
+    for (int i = 0; i < num_actuated_dofs; ++i) {
+    selection_matrix(i, num_q - num_actuated_dofs + i) = 1.0;  // Positions
+    selection_matrix(num_actuated_dofs + i, num_q + num_v - num_actuated_dofs +
+                                                i) = 1.0;  // Velocities
+    }
+    return selection_matrix;
 }
 
 }  // namespace helper

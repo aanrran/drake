@@ -59,28 +59,12 @@ class StateDependentDamper : public LeafSystem<T> {
    */
   void CalcTorque(const Context<T>& context, BasicVector<T>* torque) const {
     
-// ✅ Retrieve input state vector (actuated joints only)
-const Eigen::VectorXd& x = this->EvalVectorInput(context, 0)->value();
-
-// ✅ Create a full state vector (59 elements) initialized to zero
-Eigen::VectorXd full_state = Eigen::VectorXd::Zero(plant_.num_positions() + plant_.num_velocities());
-
-// ✅ Ensure the quaternion is valid (set it to identity)
-full_state.segment<4>(3) << 1.0, 0.0, 0.0, 0.0;  // Identity quaternion (w, x, y, z)
-
-// ✅ Copy actuated joint states (last 23 elements) into `full_state`
-full_state.tail(2 * plant_.num_actuated_dofs()) = x;  // Fix: `x` was missing
-
-// ✅ Set full state in plant context
-plant_.SetPositionsAndVelocities(plant_context_.get(), full_state);
-
-    
-    
+    const auto& root_context = this->GetMyContextFromRoot(context);
     const int num_v_full = plant_.num_velocities();  // Includes floating base
     const int num_v_actuated = plant_.num_actuated_dofs();  // Only actuated DOFs
     
     Eigen::MatrixXd H_full(num_v_full, num_v_full);
-    plant_.CalcMassMatrixViaInverseDynamics(*plant_context_, &H_full);
+    plant_.CalcMassMatrixViaInverseDynamics(root_context, &H_full);
     
     // ✅ Extract bottom-right part (actuated joints only)
     Eigen::MatrixXd H_actuated = H_full.bottomRightCorner(num_v_actuated, num_v_actuated);
@@ -93,7 +77,7 @@ plant_.SetPositionsAndVelocities(plant_context_.get(), full_state);
     damping_gains *= damping_ratio_.array();
 
     // Compute damping torque.
-    Eigen::VectorXd v = x.tail(plant_.num_actuated_dofs());
+    Eigen::VectorXd v = plant_.GetVelocities(root_context).tail(plant_.num_actuated_dofs());
     torque->get_mutable_value() = -(damping_gains * v.array()).matrix();
   }
 };
@@ -111,9 +95,7 @@ PD_Controller<T>::PD_Controller(
   const int dim = plant_.num_actuated_dofs();
   
   /*
-  torque_in ----------------------------
-                                       |
-  (q, v)    ------>|Gravity Comp|------+---> torque_out
+                                       +---> torque_out
                |                      /|
                --->|Damping|---------- |
                |                       |
