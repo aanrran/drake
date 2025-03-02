@@ -3,6 +3,18 @@ load("//tools/skylark:drake_cc.bzl", "drake_cc_binary", "drake_cc_googletest")
 
 package(default_visibility = ["//visibility:public"])
 
+cc_library(
+    name = "plant_helpers",
+    hdrs = ["helper/plant_helpers.h"],
+    srcs = ["helper/plant_helpers.cc"],
+    deps = [
+        "//multibody/plant",
+        "//geometry:scene_graph",
+        "//math", 
+    ],
+)
+
+
 drake_cc_binary(
     name = "unitree_g1_run",
     srcs = ["unitree_g1_run.cc"],
@@ -11,6 +23,7 @@ drake_cc_binary(
         "robots/g1_description/meshes",
     ],
     deps = [
+        "//examples/unitree_g1:plant_helpers", 
         "//geometry:scene_graph",
         "//multibody/parsing:parser",
         "//multibody/plant",
