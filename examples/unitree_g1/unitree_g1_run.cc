@@ -52,8 +52,7 @@ int do_main() {
 
   // ✅ 3. Manually Add Actuators to Joints (Ensures Actuation)
 
-  const int num_actuated_dofs = plant.num_actuated_dofs(); // Get Number of Actuated DOFs
-if (num_actuated_dofs == 0) {
+if (plant.num_actuated_dofs() == 0) { // Get Number of Actuated DOFs
   std::cout << std::fixed << std::setprecision(4);  // Set fixed-point notation with 4 decimal places
   std::cout << "------------------------------------------------------------------------------\n";
   std::cout << "                Software Added Joint Actuator Information Table        \n";
@@ -69,7 +68,7 @@ if (num_actuated_dofs == 0) {
     for (int i = 0; i < plant.num_joints(); ++i) {
         const auto& joint = plant.get_joint(drake::multibody::JointIndex(i));
     
-        if (joint.num_positions() == 1) { // Only consider 1-DOF joints
+        if (joint.num_positions() == 1 && joint.num_velocities() == 1) { // Only consider 1-DOF joints
             plant.AddJointActuator(joint.name() + "_actuator", joint);
     
             // ✅ Extract RPY from parent frame in URDF
@@ -84,6 +83,8 @@ if (num_actuated_dofs == 0) {
             << "\n";
         }
     }
+
+    std::cout << plant.num_actuated_dofs() <<" of actuators added to the system." << std::endl;
     std::cout << "------------------------------------------------------------------------------\n";
 }
 
@@ -93,6 +94,12 @@ if (num_actuated_dofs == 0) {
   plant.SetDefaultFreeBodyPose(
       plant.GetBodyByName("pelvis", model_instance),
       RigidTransformd(Eigen::Translation3d(0, 0, initial_z_offset)));
+
+  // ✅ Weld pelvis at an offset of (0, 0, 0.8) in world frame
+  plant.WeldFrames(plant.world_frame(), 
+      plant.GetFrameByName("pelvis"), 
+      RigidTransformd(Eigen::Translation3d(0, 0, initial_z_offset)));
+
 
   // ✅ 5. Add Ground Plane for Simulation
   const double ground_size = 10.0;
@@ -117,112 +124,94 @@ if (num_actuated_dofs == 0) {
       multibody::CoulombFriction<double>(static_friction, dynamic_friction));
 
     // add gravity adjustment feature
-    plant.mutable_gravity_field().set_gravity_vector(Eigen::Vector3d(0, 0, -9.81));  // Default -9.81 for Earth gravity, -1.625 for moon
+    plant.mutable_gravity_field().set_gravity_vector(Eigen::Vector3d(0, 0, 0.0));  // Default -9.81 for Earth gravity, -1.625 for moon
   // ✅ 6. Finalize Plant Before Using Actuated DOFs
   plant.Finalize();
 
 
-//   // ✅ 8. Setup PID Controller
-//   VectorXd Kp = VectorXd::Constant(num_actuated_dofs, 0.1);
-//   VectorXd Ki = VectorXd::Zero(num_actuated_dofs);
-//   VectorXd Kd = VectorXd::Constant(num_actuated_dofs, 0.0);
-//   auto pid_controller = builder.AddSystem<PidController<double>>(Kp, Ki, Kd);
+  // ✅ 8. Setup PID Controller
+  const int num_q = plant.num_positions();;
+  const int num_v = plant.num_velocities();;
+  const int num_x = num_q+num_v;
+  const int num_actuated_dofs = plant.num_actuated_dofs();
 
-//   // ✅ 9. Setup Desired Joint States (Hold at Zero)
-//   VectorXd desired_state = VectorXd::Zero(2 * num_actuated_dofs);
-//   desired_state << 
-//   0.0,  // left_hip_pitch_joint
-//   0.1749,  // left_hip_roll_joint
-//   0.0,  // left_hip_yaw_joint
-//   -0.1749,  // left_knee_joint
-//   0.0,  // left_ankle_pitch_joint
-//   0.0,  // left_ankle_roll_joint
-//   0.0,  // right_hip_pitch_joint
-//   0.1749,  // right_hip_roll_joint
-//   0.0,  // right_hip_yaw_joint
-//   -0.1749,  // right_knee_joint
-//   0.0,  // right_ankle_pitch_joint
-//   0.0,  // right_ankle_roll_joint
-//   0.0,  // waist_yaw_joint
-//   -0.27931,  // left_shoulder_pitch_joint
-//   0.27925,  // left_shoulder_roll_joint
-//   0.0,  // left_shoulder_yaw_joint
-//   0.0,  // left_elbow_joint
-//   0.0,  // left_wrist_roll_joint
-//   0.27931,  // right_shoulder_pitch_joint
-//   -0.27925,  // right_shoulder_roll_joint
-//   0.0,  // right_shoulder_yaw_joint
-//   0.0,  // right_elbow_joint
-//   0.0,  // right_wrist_roll_joint
+  std::cout<< "number of q:" << num_q << ", number of v:" << num_v << ", number of x:" << num_x << std::endl;
 
+  VectorXd Kp = VectorXd::Constant(num_actuated_dofs, 5.2);
+  VectorXd Ki = VectorXd::Zero(num_actuated_dofs);
+  VectorXd Kd = VectorXd::Constant(num_actuated_dofs, 0.0);
+  auto pid_controller = builder.AddSystem<PidController<double>>(Kp, Ki, Kd);
 
-//     0.0,  // left_hip_pitch_joint
-//     0.0,  // left_hip_roll_joint
-//     0.0,  // left_hip_yaw_joint
-//     0.0,  // left_knee_joint
-//     0.0,  // left_ankle_pitch_joint
-//     0.0,  // left_ankle_roll_joint
-//     0.0,  // right_hip_pitch_joint
-//     0.0,  // right_hip_roll_joint
-//     0.0,  // right_hip_yaw_joint
-//     0.0,  // right_knee_joint
-//     0.0,  // right_ankle_pitch_joint
-//     0.0,  // right_ankle_roll_joint
-//     0.0,  // waist_yaw_joint
-//     0.0,  // left_shoulder_pitch_joint
-//     0.0,  // left_shoulder_roll_joint
-//     0.0,  // left_shoulder_yaw_joint
-//     0.0,  // left_elbow_joint
-//     0.0,  // left_wrist_roll_joint
-//     0.0,  // right_shoulder_pitch_joint
-//     0.0,  // right_shoulder_roll_joint
-//     0.0,  // right_shoulder_yaw_joint
-//     0.0,  // right_elbow_joint
-//     0.0;  // right_wrist_roll_joint
-//   auto desired_state_source = builder.AddSystem<ConstantVectorSource<double>>(desired_state);
-//   builder.Connect(desired_state_source->get_output_port(), pid_controller->get_input_port_desired_state());
+  // ✅ 9. Setup Desired Joint States (Hold at Zero)
+  VectorXd desired_state = VectorXd::Zero(2*num_actuated_dofs);
+  desired_state << 
+  0.0,  // left_hip_pitch_joint
+  0.0,  // left_hip_roll_joint
+  0.0,  // left_hip_yaw_joint
+  0.1,  // left_knee_joint
+  0.0,  // left_ankle_pitch_joint
+  0.0,  // left_ankle_roll_joint
+  0.0,  // right_hip_pitch_joint
+  0.0,  // right_hip_roll_joint
+  0.0,  // right_hip_yaw_joint
+  0.1,  // right_knee_joint
+  0.0,  // right_ankle_pitch_joint
+  0.0,  // right_ankle_roll_joint
+  0.0,  // waist_yaw_joint
+  0.0,  // left_shoulder_pitch_joint
+  0.0,  // left_shoulder_roll_joint
+  0.0,  // left_shoulder_yaw_joint
+  0.0,  // left_elbow_joint
+  0.1,  // left_wrist_roll_joint
+  0.0,  // right_shoulder_pitch_joint
+  0.0,  // right_shoulder_roll_joint
+  0.0,  // right_shoulder_yaw_joint
+  0.0,  // right_elbow_joint
+  0.0,  // right_wrist_roll_joint
+
+  0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 
+  0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0;
 
 
-//   // ✅ 10. Setup State Selection Matrix for Actuated Joints
-//   const int num_positions = plant.num_positions();
-//   const int num_velocities = plant.num_velocities();
-//   Eigen::MatrixXd selection_matrix = Eigen::MatrixXd::Zero(num_actuated_dofs * 2, num_positions + num_velocities);
-
-//   for (int i = 0; i < num_actuated_dofs; ++i) {
-//     selection_matrix(i, i) = 1.0;
-//     // selection_matrix(num_actuated_dofs + i, num_positions + i) = 1.0;
-//   }
-//   auto state_selector = builder.AddSystem<MatrixGain>(selection_matrix);
-
-//   // ✅ 11. Connect Plant State to PID Controller
-//   builder.Connect(plant.get_state_output_port(), state_selector->get_input_port());
-//   builder.Connect(state_selector->get_output_port(), pid_controller->get_input_port_estimated_state());
-
-//   // ✅ 12. Compute Gravity Compensation Torques
-//   auto plant_context = plant.CreateDefaultContext();
-//   VectorXd tau_g_full = plant.CalcGravityGeneralizedForces(*plant_context);
-//   Eigen::MatrixXd B = plant.MakeActuationMatrix();
-//   VectorXd tau_g = - B.transpose() * tau_g_full;
-//   auto gravity_compensation = builder.AddSystem<ConstantVectorSource<double>>(tau_g);
+  auto desired_state_source = builder.AddSystem<ConstantVectorSource<double>>(desired_state);
   
-//   auto B_gain = builder.AddSystem<MatrixGain>(B.transpose().leftCols(num_actuated_dofs));
-// builder.Connect(pid_controller->get_output_port_control(), B_gain->get_input_port());
+  builder.Connect(desired_state_source->get_output_port(), pid_controller->get_input_port_desired_state());
 
+  
+  // ✅ 10. Setup State Selection Matrix for Actuated Joints
+  Eigen::MatrixXd selection_matrix = Eigen::MatrixXd::Zero(2*num_actuated_dofs, num_x);
+  // ✅ Extract actuated positions & velocities (skipping floating base)
+  for (int i = 0; i < num_actuated_dofs; ++i) {
+    selection_matrix(i, num_q - num_actuated_dofs + i) = 1.0;               // Positions
+    selection_matrix(num_actuated_dofs + i, num_q + num_v - num_actuated_dofs + i) = 1.0; // Velocities
+  }
 
+  auto state_selector = builder.AddSystem<MatrixGain>(selection_matrix);
 
-//   // ✅ 13. Sum PD Controller Output and Gravity Compensation
-//   auto torque_adder = builder.AddSystem<Adder<double>>(2, num_actuated_dofs);
+  // ✅ 11. Connect Plant State to PID Controller
+  builder.Connect(plant.get_state_output_port(), state_selector->get_input_port());
+  builder.Connect(state_selector->get_output_port(), pid_controller->get_input_port_estimated_state());
+
+// ✅ Compute Actuation Matrix
+auto plant_context = plant.CreateDefaultContext();
+Eigen::MatrixXd B_full = plant.MakeActuationMatrix();
+Eigen::MatrixXd B = B_full.transpose().rightCols(num_actuated_dofs);  // ✅ Extract last 23 columns
+auto B_gain = builder.AddSystem<MatrixGain>(B);
+
+  builder.Connect(pid_controller->get_output_port_control(), B_gain->get_input_port());
+  
 
 //   // ✅ 14. Apply Torque Limits
-//   auto torque_saturation = builder.AddSystem<Saturation<double>>(VectorXd::Constant(num_actuated_dofs, -2.0),
-//                                                                  VectorXd::Constant(num_actuated_dofs, 2.0));
+auto torque_saturation = builder.AddSystem<Saturation<double>>(
+  VectorXd::Constant(num_actuated_dofs, -5.0), 
+  VectorXd::Constant(num_actuated_dofs, 5.0));
 
-//   // ✅ 15. Connect Components in Diagram
-//   builder.Connect(B_gain->get_output_port(), torque_adder->get_input_port(0));
-//   builder.Connect(gravity_compensation->get_output_port(), torque_adder->get_input_port(1));
-//   builder.Connect(torque_adder->get_output_port(), torque_saturation->get_input_port());
-//   builder.Connect(torque_saturation->get_output_port(), plant.get_actuation_input_port());
+builder.Connect(B_gain->get_output_port(), torque_saturation->get_input_port());
+builder.Connect(torque_saturation->get_output_port(), plant.get_actuation_input_port());
 
+
+  
+  
   // ✅ 16. Visualization Setup
   drake::visualization::AddDefaultVisualization(&builder);
 
