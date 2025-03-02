@@ -69,16 +69,16 @@ int do_main() {
       RigidTransformd(Eigen::Translation3d(0, 0, initial_z_offset)));
 
   // ✅ Weld pelvis at an offset of (0, 0, 0.8) in world frame
-  plant.WeldFrames(
-      plant.world_frame(), plant.GetFrameByName("pelvis"),
-      RigidTransformd(Eigen::Translation3d(0, 0, initial_z_offset)));
+//   plant.WeldFrames(
+//       plant.world_frame(), plant.GetFrameByName("pelvis"),
+//       RigidTransformd(Eigen::Translation3d(0, 0, initial_z_offset)));
 
   // ✅ 5. Add Ground Plane for Simulation
   AddGroundPlaneToPlant(plant);
 
   // ✅ 6. add gravity adjustment feature
   plant.mutable_gravity_field().set_gravity_vector(Eigen::Vector3d(
-      0, 0, 0.0));  // Default -9.81 for Earth gravity, -1.625 for moon
+      0, 0, -1.0));  // Default -9.81 for Earth gravity, -1.625 for moon
 
   // ✅ 7. Finalize Plant Before Using Actuated DOFs
   plant.Finalize();
@@ -98,6 +98,7 @@ int do_main() {
   VectorXd Ki = VectorXd::Zero(num_actuated_dofs);
   VectorXd Kd = VectorXd::Constant(num_actuated_dofs, 0.7);
 //   auto pid_controller = builder.AddSystem<PidController<double>>(Kp, Ki, Kd);
+
     StateFeedbackControllerInterface<double>* pid_controller = builder.AddSystem<PD_Controller<double>>(plant, Kp, Kd);
 
   // ✅ 9. Setup Desired Joint States (Hold at Zero)

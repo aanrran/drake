@@ -58,7 +58,7 @@ class PD_Controller
   const multibody::MultibodyPlant<T>& plant_;
   systems::InputPortIndex input_port_index_estimated_state_;
   systems::InputPortIndex input_port_index_desired_state_;
-  systems::InputPortIndex input_port_index_commanded_torque_;
+//   systems::InputPortIndex input_port_index_commanded_torque_;
   systems::OutputPortIndex output_port_index_control_;
 };
 
