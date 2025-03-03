@@ -79,7 +79,7 @@ int do_main() {
 
   // ✅ 6. add gravity adjustment feature
   plant.mutable_gravity_field().set_gravity_vector(Eigen::Vector3d(
-      0, 0, -1.0));  // Default -9.81 for Earth gravity, -1.625 for moon
+      0, 0, -9.8));  // Default -9.81 for Earth gravity, -1.625 for moon
 
   // ✅ 7. Finalize Plant Before Using Actuated DOFs
   plant.Finalize();
@@ -98,22 +98,23 @@ int do_main() {
   VectorXd Kp = VectorXd::Constant(num_actuated_dofs, 5.2);
   VectorXd Ki = VectorXd::Zero(num_actuated_dofs);
   VectorXd Kd = VectorXd::Constant(num_actuated_dofs, 0.7);
-  auto pid_controller = builder.AddSystem<PidController<double>>(Kp, Ki, Kd);
+  // auto pid_controller = builder.AddSystem<PidController<double>>(Kp, Ki, Kd);
 
-    // StateFeedbackControllerInterface<double>* pid_controller = builder.AddSystem<PD_Controller<double>>(plant, Kp, Kd);
+  PD_Controller<double>* pid_controller = builder.AddSystem<PD_Controller<double>>(plant, Kp, Kd);
+  builder.Connect(plant.get_state_output_port(), pid_controller->get_input_port_full_state());
 
   // ✅ 9. Setup Desired Joint States (Hold at Zero)
   VectorXd desired_state = VectorXd::Zero(2 * num_actuated_dofs);
   desired_state << 0.0,  // left_hip_pitch_joint
       0.0,               // left_hip_roll_joint
       0.0,               // left_hip_yaw_joint
-      0.5,               // left_knee_joint
+      0.0,               // left_knee_joint
       0.0,               // left_ankle_pitch_joint
       0.0,               // left_ankle_roll_joint
       0.0,               // right_hip_pitch_joint
       0.0,               // right_hip_roll_joint
       0.0,               // right_hip_yaw_joint
-      0.5,               // right_knee_joint
+      0.0,               // right_knee_joint
       0.0,               // right_ankle_pitch_joint
       0.0,               // right_ankle_roll_joint
       0.0,               // waist_yaw_joint
@@ -121,7 +122,7 @@ int do_main() {
       0.0,               // left_shoulder_roll_joint
       0.0,               // left_shoulder_yaw_joint
       0.0,               // left_elbow_joint
-      -0.1,               // left_wrist_roll_joint
+      0.0,               // left_wrist_roll_joint
       0.0,               // right_shoulder_pitch_joint
       0.0,               // right_shoulder_roll_joint
       0.0,               // right_shoulder_yaw_joint
@@ -148,7 +149,7 @@ int do_main() {
   builder.Connect(state_selector->get_output_port(),
                   pid_controller->get_input_port_estimated_state());
 
-
+ 
   // ✅ Compute Actuation Matrix
   auto plant_context = plant.CreateDefaultContext();
   Eigen::MatrixXd B_full = plant.MakeActuationMatrix();

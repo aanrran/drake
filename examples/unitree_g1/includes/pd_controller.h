@@ -36,10 +36,10 @@ class PD_Controller
                        const VectorX<double>& stiffness,
                        const VectorX<double>& damping);
 
-//   const systems::InputPort<T>& get_input_port_commanded_torque() const {
-//     return systems::Diagram<T>::get_input_port(
-//         input_port_index_commanded_torque_);
-//   }
+  // const systems::InputPort<T>& get_input_port_commanded_torque() const {
+  //   return systems::Diagram<T>::get_input_port(
+  //       input_port_index_commanded_torque_);
+  // }
 
   const systems::InputPort<T>& get_input_port_estimated_state() const override {
     return systems::Diagram<T>::get_input_port(
@@ -54,11 +54,16 @@ class PD_Controller
     return systems::Diagram<T>::get_output_port(output_port_index_control_);
   }
 
+    const systems::InputPort<T>& get_input_port_full_state() const {
+    return systems::Diagram<T>::get_input_port(
+      input_port_index_full_state_);
+  }
  private:
   const multibody::MultibodyPlant<T>& plant_;
   systems::InputPortIndex input_port_index_estimated_state_;
   systems::InputPortIndex input_port_index_desired_state_;
-//   systems::InputPortIndex input_port_index_commanded_torque_;
+  systems::InputPortIndex input_port_index_full_state_;
+  systems::InputPortIndex input_port_index_commanded_torque_;
   systems::OutputPortIndex output_port_index_control_;
 };
 

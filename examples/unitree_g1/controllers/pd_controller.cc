@@ -27,15 +27,13 @@ class StateDependentDamper : public LeafSystem<T> {
  public:
   StateDependentDamper(const multibody::MultibodyPlant<T>& plant, const VectorX<double>& stiffness, const VectorX<double>& damping_ratio)
       : plant_(plant), stiffness_(stiffness), damping_ratio_(damping_ratio) {
-    const int num_q = plant_.num_actuated_dofs();
-    const int num_v = plant_.num_actuated_dofs();
+    const int num_q = plant_.num_positions();
+    const int num_v = plant_.num_velocities();
     const int num_x = num_q + num_v;
-    
-    DRAKE_DEMAND(stiffness.size() == num_v);
-    DRAKE_DEMAND(damping_ratio.size() == num_v);
+    const int num_actuated_dofs = plant_.num_actuated_dofs();
 
     this->DeclareInputPort(systems::kUseDefaultName, kVectorValued, num_x);
-    this->DeclareVectorOutputPort(systems::kUseDefaultName, num_v, &StateDependentDamper<T>::CalcTorque);
+    this->DeclareVectorOutputPort(systems::kUseDefaultName, num_actuated_dofs, &StateDependentDamper<T>::CalcTorque);
     // Make context with default parameters.
     plant_context_ = plant_.CreateDefaultContext();
     
@@ -59,26 +57,29 @@ class StateDependentDamper : public LeafSystem<T> {
    */
   void CalcTorque(const Context<T>& context, BasicVector<T>* torque) const {
     
-    const auto& root_context = this->GetMyContextFromRoot(context);
-    const int num_v_full = plant_.num_velocities();  // Includes floating base
-    const int num_v_actuated = plant_.num_actuated_dofs();  // Only actuated DOFs
-    
-    Eigen::MatrixXd H_full(num_v_full, num_v_full);
-    plant_.CalcMassMatrixViaInverseDynamics(root_context, &H_full);
-    
-    // ✅ Extract bottom-right part (actuated joints only)
-    Eigen::MatrixXd H_actuated = H_full.bottomRightCorner(num_v_actuated, num_v_actuated);
-    
+    const Eigen::VectorXd& x = this->EvalVectorInput(context, 0)->value();
+    plant_.SetPositionsAndVelocities(plant_context_.get(), x);
+
+    const int num_v = plant_.num_velocities();
+    Eigen::MatrixXd H(num_v, num_v);
+    plant_.CalcMassMatrixViaInverseDynamics(*plant_context_, &H);
 
     // Compute critical damping gains and scale by damping ratio. Use Eigen
     // arrays (rather than matrices) for elementwise multiplication.
-    Eigen::ArrayXd temp = H_actuated.diagonal().array() * stiffness_.array();
+    Eigen::ArrayXd temp = H.diagonal().array() * stiffness_.array();
     Eigen::ArrayXd damping_gains = 2 * temp.sqrt();
     damping_gains *= damping_ratio_.array();
 
     // Compute damping torque.
-    Eigen::VectorXd v = plant_.GetVelocities(root_context).tail(plant_.num_actuated_dofs());
-    torque->get_mutable_value() = -(damping_gains * v.array()).matrix();
+    Eigen::VectorXd v = x.tail(plant_.num_velocities());
+    Eigen::VectorXd full_torque  = -(damping_gains * v.array()).matrix();
+
+    const int num_actuated_dofs = plant_.num_actuated_dofs();
+    // ✅ Correctly extract the last `num_actuated_dofs` torques for actuators.
+    Eigen::VectorXd actuated_torque = full_torque.tail(num_actuated_dofs);
+
+    // ✅ Set output port with actuated torques only.
+    torque->SetFromVector(actuated_torque);
   }
 };
 
@@ -124,15 +125,15 @@ PD_Controller<T>::PD_Controller(
   input_port_index_estimated_state_ = builder.ExportInput(spring->get_input_port_estimated_state(), "estimated_state");
   
   // Connects the estimated state to the damper.
-  builder.ConnectInput(input_port_index_estimated_state_, damper->get_input_port(0));
+  // builder.ConnectInput(input_port_index_estimated_state_, damper->get_input_port(0));
 
   // Exposes the desired state port.
   input_port_index_desired_state_ = builder.ExportInput(spring->get_input_port_desired_state(), "desired_state");
 
   
-
+  input_port_index_full_state_ = builder.ExportInput(damper->get_input_port(0), "full_state");
   // Exposes the commanded torque port.
-//   input_port_index_commanded_torque_ = builder.ExportInput(adder->get_input_port(0), "commanded_torque");
+  // input_port_index_commanded_torque_ = builder.ExportInput(adder->get_input_port(0), "commanded_torque");
 
   // Exposes controller output.
   output_port_index_control_ = builder.ExportOutput(adder->get_output_port(), "control");
