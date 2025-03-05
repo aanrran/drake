@@ -6,6 +6,7 @@
 #include <Eigen/Dense>
 #include <gflags/gflags.h>
 
+#include "examples/unitree_g1/includes/walking_pattern_generator.h"
 #include "./includes/pd_controller.h"
 #include "./includes/plant_helpers.h"
 #include "drake/geometry/scene_graph.h"
