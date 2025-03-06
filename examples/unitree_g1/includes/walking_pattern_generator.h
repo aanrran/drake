@@ -7,6 +7,7 @@
 #include <Eigen/Dense>
 #include <vector>
 
+
 namespace drake {
 namespace examples {
 namespace unitree_g1 {

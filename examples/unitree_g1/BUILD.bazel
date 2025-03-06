@@ -115,5 +115,26 @@ drake_cc_googletest(
     ],
 )
 
-
+drake_cc_googletest(
+    name = "walking_FSM_test",
+    srcs = ["GTest/walking_FSM_test.cc"],
+    data = [
+        "robots/g1_description/g1_23dof.urdf",
+        "robots/g1_description/meshes",
+    ],
+    deps = [
+        "//examples/unitree_g1:walking_pattern_generator",
+        "//geometry:scene_graph",
+        "//multibody/parsing:parser",
+        "//multibody/plant",
+        "//systems/analysis:simulator",
+        "//systems/controllers:pid_controller",
+        "//systems/framework:diagram_builder",
+        "//systems/primitives:constant_vector_source",
+        "//systems/primitives:matrix_gain",
+        "//systems/primitives:saturation",
+        "//systems/primitives:adder",
+        "//visualization:visualization_config_functions",
+    ],
+)
 add_lint_tests()
