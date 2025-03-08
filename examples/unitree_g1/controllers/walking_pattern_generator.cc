@@ -56,15 +56,35 @@ WalkingFSM::WalkingFSM(int n_steps, double step_length, double step_height, doub
 
     assert(n_steps >= 2 && "Must specify at least two steps");
 
-    this->n_steps_ = n_steps;
-    this->step_length_ = step_length;
-    this->step_height_ = step_height;
-    this->step_time_ = step_time;
-    this->n_phases_ = 2 * n_steps + 1;
-    this->total_time_ = step_time * n_phases_;
+    this->n_steps_ = n_steps;                    // number of steps to take
+    this->step_length_ = step_length;            // how far forward each step goes
+    this->step_height_ = step_height;            // maximum height of the swing foot
+    this->step_time_ = step_time;                // how long each swing phase lasts
+    this->n_phases_ = 2 * n_steps + 1;           // how many different phases (double support, left support
+                                                 // right support, etc. there are throughout the whole motion.
+    this->total_time_ = step_time * n_phases_; 
+
+    // Initial CoM and foot positions
+    this->x_com_init_ = Eigen::Vector3d(0.0, 0.0, 1.0);
+    this->xd_com_init_ = Eigen::Vector3d(0.0, 0.0, 0.0);    
+
+    this->fc_offset_ = -0.065;   // The foot frame is this far from the foot's center
+
+    // Initialize right and left foot positions
+    this->x_right_init_ = Eigen::Vector3d(this->fc_offset_, -0.138, 0.1);
+    this->x_left_init_ = Eigen::Vector3d(this->fc_offset_, 0.138, 0.1);
+
+    this->foot_w1_ = 0.08;  // width left of foot frame
+    this->foot_w2_ = 0.08;  // width right of foot frame
+    this->foot_l1_ = 0.2;   // length in front of foot
+    this->foot_l2_ = 0.07;  // length behind foot
+
+    // LIP parameters
+    this->h_ = this->x_com_init_(2);
+    this->g_ = 9.81;
 
     // Create subcomponents and add to diagram
-    // auto standing_fsm = builder.AddSystem<StandingFSM>();
+    auto standing_fsm = builder.AddSystem<StandingFSM>();
 
     // Additional walking subcomponents (to be added in future steps)
     GenerateFootPlacements();
@@ -78,13 +98,9 @@ WalkingFSM::WalkingFSM(int n_steps, double step_length, double step_height, doub
 
 void WalkingFSM::GenerateFootPlacements() {
     std::cout << "GenerateFootPlacements() called." << std::endl;
-
-    // Initialize right and left foot positions
-    x_right_init_ = Eigen::Vector3d(fc_offset_, -0.138, 0.1);
-    x_left_init_ = Eigen::Vector3d(fc_offset_, 0.138, 0.1);
-
-    right_foot_placements_.push_back(x_right_init_);
-    left_foot_placements_.push_back(x_left_init_);
+    // Generate foot ground contact placements for both feet
+    this->right_foot_placements_.push_back(this->x_right_init_);
+    this->left_foot_placements_.push_back(this->x_left_init_);
 
     // Generate footstep placements
     for (int step = 0; step < n_steps_; step++) {
@@ -92,14 +108,14 @@ void WalkingFSM::GenerateFootPlacements() {
 
         if (step % 2 == 0) {
             // Move right foot forward
-            Eigen::Vector3d x_right = right_foot_placements_.back();
+            Eigen::Vector3d x_right = this->right_foot_placements_.back();
             x_right(0) += l;
-            right_foot_placements_.push_back(x_right);
+            this->right_foot_placements_.push_back(x_right);
         } else {
             // Move left foot forward
-            Eigen::Vector3d x_left = left_foot_placements_.back();
+            Eigen::Vector3d x_left = this->left_foot_placements_.back();
             x_left(0) += l;
-            left_foot_placements_.push_back(x_left);
+            this->left_foot_placements_.push_back(x_left);
         }
     }
 }
@@ -115,6 +131,7 @@ void WalkingFSM::GenerateZMPTrajectory() {
     double initial_x = (right_foot_placements_.front()(0) + left_foot_placements_.front()(0)) / 2.0 - fc_offset_;
     double initial_y = (right_foot_placements_.front()(1) + left_foot_placements_.front()(1)) / 2.0;
 
+    // specify the desired ZMP at the break times
     zmp_knots.col(0) << initial_x, initial_y;
 
     // Generate ZMP reference trajectory
@@ -122,9 +139,9 @@ void WalkingFSM::GenerateZMPTrajectory() {
     for (int i = 0; i < n_steps_ - 1; i++) {
         Eigen::Vector3d foot_center;
         if (i % 2 == 0) {
-            foot_center = right_foot_placements_[rf_idx++];
+            foot_center = right_foot_placements_[rf_idx++]; // Right foot moved: shift ZMP under the right foot now
         } else {
-            foot_center = left_foot_placements_[lf_idx++];
+            foot_center = left_foot_placements_[lf_idx++];  // Left foot moved: shift ZMP under the left foot now
         }
 
         foot_center(0) -= fc_offset_;  // Adjust for foot offset
@@ -133,7 +150,7 @@ void WalkingFSM::GenerateZMPTrajectory() {
         zmp_knots.col(2 * i + 2) = foot_center.head(2);
     }
 
-    // Final shift of ZMP to center between feet
+    // Final shift of ZMP to center between feet in double support
     double last_x = zmp_knots(0, zmp_knots.cols() - 1);
     zmp_knots.col(zmp_knots.cols() - 1) << last_x, 0.0;
 

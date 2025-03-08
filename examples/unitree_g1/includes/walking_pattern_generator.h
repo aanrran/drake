@@ -52,6 +52,16 @@ class WalkingFSM : public Diagram<double> {
   DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(WalkingFSM);
   WalkingFSM(int n_steps, double step_length, double step_height, double step_time);
 
+    // ✅ Getter for right foot placements
+    const std::vector<Eigen::VectorXd>& get_right_foot_placements() const {
+      return right_foot_placements_;
+  }
+
+  // ✅ Getter for left foot placements
+  const std::vector<Eigen::VectorXd>& get_left_foot_placements() const {
+      return left_foot_placements_;
+  }
+
  private:
   void GenerateFootPlacements();
   void GenerateZMPTrajectory();
@@ -63,6 +73,7 @@ class WalkingFSM : public Diagram<double> {
   int n_phases_;
   double total_time_;
   double fc_offset_;
+  double foot_w1_, foot_w2_, foot_l1_, foot_l2_;
   double h_, g_;
   VectorXd x_com_init_, xd_com_init_;
   VectorXd x_right_init_, x_left_init_;
