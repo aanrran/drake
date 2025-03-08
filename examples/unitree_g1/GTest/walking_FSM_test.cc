@@ -18,7 +18,7 @@ using drake::multibody::Parser;
 
 int do_main() {
     drake::systems::DiagramBuilder<double> builder;
-    int n_steps = 3;
+    int n_steps = 5;
     double step_length = 0.5, step_height = 0.1, step_time = 0.5;
 
     // ✅ Add WalkingFSM
@@ -42,7 +42,7 @@ int do_main() {
         left_x.push_back(pos(0));
         left_y.push_back(pos(1));
     }
-
+    plt::figure(0);
     // ✅ Plot the foot placements
     plt::scatter(right_x, right_y, 50, {{"label", "Right Foot"}, {"color", "red"}});
     plt::scatter(left_x, left_y, 50, {{"label", "Left Foot"}, {"color", "blue"}});
@@ -53,12 +53,13 @@ int do_main() {
     // plt::show();  // ✅ Opens a window to display the plot
 
     // ✅ Extract ZMP trajectory
-    std::vector<double> zmp_x, zmp_y;
+    std::vector<double> zmp_x, zmp_y, time_points;
     double dt = 0.05;  // Sampling time for plotting
     for (double t = 0; t <= walking_fsm->get_total_time(); t += dt) {
         Eigen::Vector2d zmp = walking_fsm->get_zmp_trajectory().value(t);
         zmp_x.push_back(zmp(0));
         zmp_y.push_back(zmp(1));
+        time_points.push_back(t);
     }
 
     // ✅ Plot the ZMP trajectory
@@ -70,6 +71,20 @@ int do_main() {
     plt::legend();
     plt::show();
 
+
+    // ✅ Create 3D plot for ZMP trajectory
+    plt::figure(1);
+    plt::plot3(zmp_x, zmp_y, time_points, {{"label", "ZMP Trajectory"}, {"color", "purple"}});
+
+    // ✅ Label axes
+    plt::xlabel("ZMP X Position (m)");
+    plt::ylabel("ZMP Y Position (m)");
+    plt::set_zlabel("Time (s)");
+    plt::title("ZMP Trajectory Over Time");
+    plt::legend();
+
+    // ✅ Show the final 3D plot
+    plt::show();
 
     return 0;  // ✅ Normal program exit
 }
