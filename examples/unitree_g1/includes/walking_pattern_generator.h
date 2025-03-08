@@ -62,6 +62,12 @@ class WalkingFSM : public Diagram<double> {
       return left_foot_placements_;
   }
 
+  double get_total_time() const { return total_time_; }
+  
+  const drake::trajectories::PiecewisePolynomial<double>& get_zmp_trajectory() const { 
+      return zmp_trajectory_; 
+  }
+
  private:
   void GenerateFootPlacements();
   void GenerateZMPTrajectory();

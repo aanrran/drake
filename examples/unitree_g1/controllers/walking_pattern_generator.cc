@@ -60,7 +60,7 @@ WalkingFSM::WalkingFSM(int n_steps, double step_length, double step_height, doub
     this->step_length_ = step_length;            // how far forward each step goes
     this->step_height_ = step_height;            // maximum height of the swing foot
     this->step_time_ = step_time;                // how long each swing phase lasts
-    this->n_phases_ = 2 * n_steps + 1;           // how many different phases (double support, left support
+    this->n_phases_ = 2 * n_steps;           // how many different phases (double support, left support
                                                  // right support, etc. there are throughout the whole motion.
     this->total_time_ = step_time * n_phases_; 
 
@@ -124,8 +124,11 @@ void WalkingFSM::GenerateZMPTrajectory() {
     std::cout << "GenerateZMPTrajectory() called." << std::endl;
 
     // Define timestamps (breakpoints) for interpolation
-    Eigen::VectorXd break_times = Eigen::VectorXd::LinSpaced(n_phases_ + 1, 0, total_time_);
-    Eigen::MatrixXd zmp_knots(2, n_phases_ + 1);
+    Eigen::VectorXd break_times = Eigen::VectorXd::LinSpaced(n_phases_, 0, total_time_);
+    Eigen::MatrixXd zmp_knots(2, n_phases_);
+    std::cout << "total time: " << total_time_<< std::endl;
+    std::cout << "break_times len: " << break_times.size() << std::endl;
+    std::cout << "zmp_knots size: " << zmp_knots.size() << std::endl;
 
     // Compute initial ZMP position as the midpoint between both feet
     double initial_x = (right_foot_placements_.front()(0) + left_foot_placements_.front()(0)) / 2.0 - fc_offset_;
@@ -135,9 +138,10 @@ void WalkingFSM::GenerateZMPTrajectory() {
     zmp_knots.col(0) << initial_x, initial_y;
 
     // Generate ZMP reference trajectory
+    Eigen::Vector3d foot_center;
     int rf_idx = 1, lf_idx = 1;
     for (int i = 0; i < n_steps_ - 1; i++) {
-        Eigen::Vector3d foot_center;
+        
         if (i % 2 == 0) {
             foot_center = right_foot_placements_[rf_idx++]; // Right foot moved: shift ZMP under the right foot now
         } else {
@@ -145,17 +149,19 @@ void WalkingFSM::GenerateZMPTrajectory() {
         }
 
         foot_center(0) -= fc_offset_;  // Adjust for foot offset
+        std::cout << i+1 <<"th foot placement: x->" << foot_center(0) << " y->" << foot_center(1) << std::endl;
 
         zmp_knots.col(2 * i + 1) = foot_center.head(2);
         zmp_knots.col(2 * i + 2) = foot_center.head(2);
     }
 
     // Final shift of ZMP to center between feet in double support
-    double last_x = zmp_knots(0, zmp_knots.cols() - 1);
-    zmp_knots.col(zmp_knots.cols() - 1) << last_x, 0.0;
+    zmp_knots.col(zmp_knots.cols() - 1) << foot_center.head(1), 0.0;
 
     // Store ZMP trajectory as a piecewise polynomial
     zmp_trajectory_ = drake::trajectories::PiecewisePolynomial<double>::FirstOrderHold(break_times, zmp_knots);
+
+
 }
 
 
