@@ -167,9 +167,100 @@ void WalkingFSM::GenerateZMPTrajectory() {
 
 
 void WalkingFSM::GenerateCoMTrajectory() {
-    // TODO: Implement CoM trajectory generation (using MPC)
     std::cout << "GenerateCoMTrajectory() called." << std::endl;
+
+    // Define discrete time step for MPC
+    double dt = step_time_ / 2.0;  // Discretization step (subdividing the step time)
+    int n_steps_mpc = total_time_ / dt;
+
+    // Create an optimization problem
+    drake::solvers::MathematicalProgram prog;
+
+    // Decision variables: CoM state (x, y, dx, dy) and control input (ux, uy)
+    auto X = prog.NewContinuousVariables(4, n_steps_mpc, "X");
+    auto U = prog.NewContinuousVariables(2, n_steps_mpc, "U");
+
+    // Define LIP discrete-time dynamics matrices
+    Eigen::Matrix4d A;
+    A.setIdentity();
+    A(0, 2) = dt;
+    A(1, 3) = dt;
+
+    Eigen::Matrix<double, 4, 2> B;
+    B.setZero();
+    B(0, 0) = 0.5 * dt * dt;  // ✅ Add quadratic term for position update
+    B(1, 1) = 0.5 * dt * dt;
+    B(2, 0) = dt;
+    B(3, 1) = dt;
+    
+    Eigen::Matrix<double, 2, 4> C;
+    C.setZero();
+    C(0, 0) = 1.0;
+    C(1, 1) = 1.0;
+
+    Eigen::Matrix2d D;
+    D.setIdentity();
+    D *= (-h_ / g_);
+
+    // Initial CoM state constraint
+    Eigen::Vector4d x_com_mpc_init;
+    x_com_mpc_init << x_com_init_.head<2>(), xd_com_init_.head<2>();  // (x, y, vx, vy)
+
+    prog.AddLinearEqualityConstraint(X.col(0) == x_com_mpc_init);
+
+    // Dynamics constraints for each time step
+    for (int k = 0; k < n_steps_mpc - 1; ++k) {
+        prog.AddLinearEqualityConstraint(X.col(k+1) == A * X.col(k) + B * U.col(k));
+    }
+
+    // ZMP tracking objective
+    Eigen::MatrixXd Q = Eigen::MatrixXd::Identity(2, 2);
+    Eigen::MatrixXd R = Eigen::MatrixXd::Identity(2, 2) * 0.01;
+
+    for (int k = 0; k < n_steps_mpc; ++k) {
+        Eigen::Vector2d zmp_ref = zmp_trajectory_.value(k * dt);
+        // ✅ Define new decision variable for ZMP
+        drake::solvers::VectorXDecisionVariable zmp_actual = prog.NewContinuousVariables(2, "zmp_actual");
+
+        // ✅ Add constraint to enforce ZMP equation: zmp_actual = C * X + D * U
+        prog.AddLinearEqualityConstraint(zmp_actual == C * X.col(k) + D * U.col(k));
+
+        // ✅ Apply quadratic cost for ZMP tracking
+        prog.AddQuadraticErrorCost(Q, zmp_ref, zmp_actual);
+
+        // Apply quadratic cost for control effort minimization
+        prog.AddQuadraticErrorCost(R, Eigen::Vector2d::Zero(), U.col(k));
+    }
+
+    // 🔥 **Terminal Constraints (Final Time Step)**
+    int k_final = n_steps_mpc - 1;
+
+    // ✅ Terminal CoM Position: CoM should be close to the final ZMP
+    Eigen::Vector2d final_zmp = zmp_trajectory_.value(total_time_);
+    prog.AddLinearEqualityConstraint(X.topRows(2).col(k_final) == final_zmp);
+
+    // ✅ Terminal Velocity: CoM velocity should approach zero
+    prog.AddLinearEqualityConstraint(X.middleRows(2, 2).col(k_final) == Eigen::Vector2d::Zero());
+
+    // Solve the optimization problem
+    MathematicalProgramResult result = Solve(prog);
+    if (!result.is_success()) {
+        throw std::runtime_error("MPC failed to solve CoM trajectory!");
+    }
+
+    // Extract optimal CoM trajectory
+    Eigen::MatrixXd X_sol = result.GetSolution(X);
+
+    // Convert solution into a PiecewisePolynomial
+    Eigen::VectorXd break_times = Eigen::VectorXd::LinSpaced(n_steps_mpc, 0, total_time_);
+    // Store the CoM trajectory using cubic polynomial interpolation
+    com_trajectory_ = drake::trajectories::PiecewisePolynomial<double>::CubicHermite(
+        break_times, 
+        X_sol.topRows(2),  // Extract CoM positions x, y
+        X_sol.middleRows(2, 2) // Extract CoM velocities xd, yd
+    );
 }
+
 
 void WalkingFSM::GenerateFootTrajectories() {
     // TODO: Implement foot trajectory generation

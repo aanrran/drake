@@ -42,7 +42,7 @@ int do_main() {
         left_x.push_back(pos(0));
         left_y.push_back(pos(1));
     }
-    plt::figure(0);
+    plt::figure();
     // ✅ Plot the foot placements
     plt::scatter(right_x, right_y, 50, {{"label", "Right Foot"}, {"color", "red"}});
     plt::scatter(left_x, left_y, 50, {{"label", "Left Foot"}, {"color", "blue"}});
@@ -73,7 +73,7 @@ int do_main() {
 
 
     // ✅ Create 3D plot for ZMP trajectory
-    plt::figure(1);
+    plt::figure();
     plt::plot3(zmp_x, zmp_y, time_points, {{"label", "ZMP Trajectory"}, {"color", "purple"}});
 
     // ✅ Label axes
@@ -81,6 +81,30 @@ int do_main() {
     plt::ylabel("ZMP Y Position (m)");
     plt::set_zlabel("Time (s)");
     plt::title("ZMP Trajectory Over Time");
+    plt::legend();
+
+    // ✅ Show the final 3D plot
+    // plt::show();
+
+    // ✅ Extract CoM trajectory
+    std::vector<double> com_x, com_y, com_time;
+
+    // ✅ Extract CoM trajectory
+    for (double t = 0; t <= walking_fsm->get_total_time(); t += dt) {
+        Eigen::Vector2d com = walking_fsm->get_com_trajectory().value(t);
+        com_x.push_back(com(0));
+        com_y.push_back(com(1));
+        com_time.push_back(t);
+    }
+
+    // ✅ Plot CoM trajectory (on the same figure)
+    plt::plot3(com_x, com_y, com_time, {{"label", "CoM Trajectory"}, {"color", "blue"}});
+
+    // ✅ Label axes
+    plt::xlabel("X Position (m)");
+    plt::ylabel("Y Position (m)");
+    plt::set_zlabel("Time (s)");
+    plt::title("3D ZMP & CoM Trajectories Over Time");
     plt::legend();
 
     // ✅ Show the final 3D plot

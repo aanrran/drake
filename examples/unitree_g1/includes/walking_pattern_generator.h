@@ -68,6 +68,10 @@ class WalkingFSM : public Diagram<double> {
       return zmp_trajectory_; 
   }
 
+  const drake::trajectories::PiecewisePolynomial<double>& get_com_trajectory() const { 
+    return com_trajectory_; 
+}
+
  private:
   void GenerateFootPlacements();
   void GenerateZMPTrajectory();
