@@ -324,8 +324,22 @@ void WalkingFSM::GenerateFootTrajectories() {
         break_times, rf_knots, rf_dot_knots);
 }
 
+std::string WalkingFSM::SupportPhase(double time) const {
+    if (time >= total_time_) {
+        return "double";  // Final stance phase
+    }
+    double phase_time = std::fmod(time / step_time_, 4.0);
 
-
+    if (phase_time <= 1.0) {
+        return "double";  // Double Support
+    } else if (phase_time <= 2.0) {
+        return "left";    // Left foot is stance, right foot is swinging
+    } else if (phase_time <= 3.0) {
+        return "double";  // Double Support
+    } else {
+        return "right";   // Right foot is stance, left foot is swinging
+    }
+}
 
 
 // int main() {

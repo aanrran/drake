@@ -80,6 +80,8 @@ class WalkingFSM : public Diagram<double> {
     return left_foot_trajectory_; 
   }
 
+  std::string SupportPhase(double time) const;
+
  private:
   void GenerateFootPlacements();
   void GenerateZMPTrajectory();

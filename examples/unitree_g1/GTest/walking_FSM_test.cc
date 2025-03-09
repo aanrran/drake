@@ -151,6 +151,35 @@ int do_main() {
 
     // ✅ Show the final 3D plot
     plt::show();
+
+    plt::figure();
+    // ✅ Plot the foot x-z trajectory
+    plt::plot(right_ft_x, right_ft_z, {{"label", "Right Foot"}, {"color", "red"}});
+    plt::plot(left_ft_x, left_ft_z, {{"label", "Right Foot"}, {"color", "green"}});
+    plt::xlabel("X Position (m)");
+    plt::ylabel("Z Position (m)");
+    plt::title("Foot x vs z Trajectory");
+    // ✅ Re-show the plot with ZMP
+    plt::legend();
+    plt::show();
+
+    // print the robot steping status with time and compair with the below plot
+    for (double t = 0; t <= walking_fsm->get_total_time(); t += 0.25) {
+        std::string current_phase = walking_fsm->SupportPhase(t);
+        std::cout << current_phase << " at time " << t << std::endl;
+    }
+    plt::figure();
+    // ✅ Plot the foot x trajectory with time
+    plt::plot(ft_time, right_ft_z, {{"label", "Right Foot"}, {"color", "red"}});
+    plt::plot(ft_time, left_ft_z, {{"label", "Right Foot"}, {"color", "green"}});
+    plt::xlabel("time");
+    plt::ylabel("Z Position (m)");
+    plt::title("Foot x vs time Trajectory");
+    // ✅ Re-show the plot with ZMP
+    plt::legend();
+    plt::show();
+    
+
     return 0;  // ✅ Normal program exit
 }
 
