@@ -70,7 +70,15 @@ class WalkingFSM : public Diagram<double> {
 
   const drake::trajectories::PiecewisePolynomial<double>& get_com_trajectory() const { 
     return com_trajectory_; 
-}
+  }
+
+  const drake::trajectories::PiecewisePolynomial<double>& get_right_foot_trajectory() const { 
+    return right_foot_trajectory_; 
+  }
+
+  const drake::trajectories::PiecewisePolynomial<double>& get_left_foot_trajectory() const { 
+    return left_foot_trajectory_; 
+  }
 
  private:
   void GenerateFootPlacements();

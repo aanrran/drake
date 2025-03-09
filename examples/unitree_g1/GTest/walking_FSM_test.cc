@@ -96,7 +96,7 @@ int do_main() {
         com_y.push_back(com(1));
         com_time.push_back(t);
     }
-
+    plt::figure();
     // ✅ Plot CoM trajectory (on the same figure)
     plt::plot3(com_x, com_y, com_time, {{"label", "CoM Trajectory"}, {"color", "blue"}});
 
@@ -104,12 +104,53 @@ int do_main() {
     plt::xlabel("X Position (m)");
     plt::ylabel("Y Position (m)");
     plt::set_zlabel("Time (s)");
-    plt::title("3D ZMP & CoM Trajectories Over Time");
+    plt::title("CoM Trajectories Over Time");
     plt::legend();
 
     // ✅ Show the final 3D plot
     plt::show();
 
+
+    // ✅ Extract foot trajectory
+    std::vector<double> right_ft_x, right_ft_z, left_ft_x, left_ft_z, ft_time;
+    // ✅ Extract CoM trajectory
+    for (double t = 0; t <= walking_fsm->get_total_time(); t += dt) {
+        Eigen::Vector3d right_foot = walking_fsm->get_right_foot_trajectory().value(t);
+        right_ft_x.push_back(right_foot(0));
+        right_ft_z.push_back(right_foot(2));
+
+        Eigen::Vector3d left_foot = walking_fsm->get_left_foot_trajectory().value(t);
+        left_ft_x.push_back(left_foot(0));
+        left_ft_z.push_back(left_foot(2));
+
+        ft_time.push_back(t);
+    }
+    plt::figure();
+    // ✅ Plot right foot trajectory
+    plt::plot3(right_ft_x, right_ft_z, ft_time, {{"label", "Right Foot Trajectory"}, {"color", "red"}});
+
+    // ✅ Label axes
+    plt::xlabel("X Position (m)");
+    plt::ylabel("Z Position (m)");
+    plt::set_zlabel("Time (s)");
+    plt::title("Right Foot Trajectories Over Time");
+    plt::legend();
+
+    // ✅ Show the final 3D plot
+    plt::show();
+
+    // ✅ Plot right foot trajectory
+    plt::plot3(left_ft_x, left_ft_z, ft_time, {{"label", "left Foot Trajectory"}, {"color", "blue"}});
+
+    // ✅ Label axes
+    plt::xlabel("X Position (m)");
+    plt::ylabel("Z Position (m)");
+    plt::set_zlabel("Time (s)");
+    plt::title("Left Foot Trajectories Over Time");
+    plt::legend();
+
+    // ✅ Show the final 3D plot
+    plt::show();
     return 0;  // ✅ Normal program exit
 }
 

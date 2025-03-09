@@ -261,11 +261,71 @@ void WalkingFSM::GenerateCoMTrajectory() {
     );
 }
 
-
 void WalkingFSM::GenerateFootTrajectories() {
-    // TODO: Implement foot trajectory generation
     std::cout << "GenerateFootTrajectories() called." << std::endl;
+
+    // **Step 1: Create full break times**
+    Eigen::VectorXd break_times = Eigen::VectorXd::LinSpaced(2 * n_phases_ + 1, 0, total_time_);
+
+    // **Step 2: Initialize foot position & velocity matrices**
+    Eigen::Matrix3Xd lf_knots = Eigen::Matrix3Xd::Zero(3, break_times.size());
+    Eigen::Matrix3Xd rf_knots = Eigen::Matrix3Xd::Zero(3, break_times.size());
+
+    Eigen::Matrix3Xd lf_dot_knots = Eigen::Matrix3Xd::Zero(3, break_times.size());
+    Eigen::Matrix3Xd rf_dot_knots = Eigen::Matrix3Xd::Zero(3, break_times.size());
+
+    int lf_idx = 0, rf_idx = 0;
+
+    // **Step 3: Iterate Over Break Times to Assign Foot Placements**
+    for (int i = 0; i < break_times.size(); ++i) {
+        double t = break_times(i);
+        double phase_time = std::fmod(t / step_time_, 4.0); // Compute phase within 4-phase cycle
+        Eigen::Vector3d lf_ref, rf_ref;
+
+        if (1.0 < phase_time && phase_time < 2.0) {
+            // **Right Foot Swing Phase**
+            rf_ref = right_foot_placements_[rf_idx]; 
+            rf_ref(0) += step_length_ / 2.0;  // Move forward to midpoint
+            rf_ref(2) += step_height_;  // Lift up to designated height
+            rf_dot_knots(0, i) = step_length_ / step_time_; // Forward velocity
+
+            // Left foot remains at the same place
+            lf_ref = left_foot_placements_[lf_idx];
+
+            rf_idx++;  // Move right foot to the next placement
+
+        } else if (3.0 < phase_time && phase_time < 4.0) {
+            // **Left Foot Swing Phase**
+            lf_ref = left_foot_placements_[lf_idx];
+            lf_ref(0) += step_length_ / 2.0;  // Move forward to midpoint
+            lf_ref(2) += step_height_;  // Lift up to designated height
+            lf_dot_knots(0, i) = step_length_ / step_time_; // Forward velocity
+
+            // Right foot remains at the same place
+            rf_ref = right_foot_placements_[rf_idx];
+
+            lf_idx++;  // Move left foot to the next placement
+
+        } else {
+            // **Double Support Phase**
+            lf_ref = left_foot_placements_[lf_idx];
+            rf_ref = right_foot_placements_[rf_idx];
+        }
+
+        lf_knots.col(i) = lf_ref;
+        rf_knots.col(i) = rf_ref;
+    }
+
+    // **Step 4: Create Piecewise Polynomial Trajectories**
+    left_foot_trajectory_ = drake::trajectories::PiecewisePolynomial<double>::CubicHermite(
+        break_times, lf_knots, lf_dot_knots);
+
+    right_foot_trajectory_ = drake::trajectories::PiecewisePolynomial<double>::CubicHermite(
+        break_times, rf_knots, rf_dot_knots);
 }
+
+
+
 
 
 // int main() {
