@@ -52,7 +52,6 @@ void StandingFSM::CalcLeftFootPosition(const Context<double>&, BasicVector<doubl
 
 // WalkingFSM Constructor
 WalkingFSM::WalkingFSM(int n_steps, double step_length, double step_height, double step_time) {
-    DiagramBuilder<double> builder;
 
     assert(n_steps >= 2 && "Must specify at least two steps");
 
@@ -83,17 +82,12 @@ WalkingFSM::WalkingFSM(int n_steps, double step_length, double step_height, doub
     this->h_ = this->x_com_init_(2);
     this->g_ = 9.81;
 
-    // Create subcomponents and add to diagram
-    auto standing_fsm = builder.AddSystem<StandingFSM>();
-
     // Additional walking subcomponents (to be added in future steps)
     GenerateFootPlacements();
     GenerateZMPTrajectory();
     GenerateCoMTrajectory();
     GenerateFootTrajectories();
 
-    // Build the Diagram
-    builder.BuildInto(this);
 }
 
 void WalkingFSM::GenerateFootPlacements() {
@@ -148,7 +142,7 @@ void WalkingFSM::GenerateZMPTrajectory() {
             foot_center = left_foot_placements_[lf_idx++];  // Left foot moved: shift ZMP under the left foot now
         }
 
-        foot_center(0) -= fc_offset_;  // Adjust for foot offset
+        foot_center(0) -= fc_offset_;  // Adjust for foot offset (converting from foot placement back to foot center)
         std::cout << i+1 <<"th foot placement: x->" << foot_center(0) << " y->" << foot_center(1) << std::endl;
 
         zmp_knots.col(2 * i + 1) = foot_center.head(2);
@@ -341,14 +335,6 @@ std::string WalkingFSM::SupportPhase(double time) const {
     }
 }
 
-
-// int main() {
-//   WalkingFSM walking_fsm(4, 0.5, 0.1, 0.5);
-//   StandingFSM standing_fsm;
-  
-//   std::cout << "Walking and Standing FSMs initialized successfully!" << std::endl;
-//   return 0;
-// }
 
 }  // namespace walking_pattern
 }  // namespace unitree_g1

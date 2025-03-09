@@ -47,7 +47,7 @@ class StandingFSM : public LeafSystem<double> {
 };
 
 /** WalkingFSM: A finite state machine for generating a simple walking pattern */
-class WalkingFSM : public Diagram<double> {
+class WalkingFSM : public LeafSystem<double> {
  public:
   DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(WalkingFSM);
   WalkingFSM(int n_steps, double step_length, double step_height, double step_time);
