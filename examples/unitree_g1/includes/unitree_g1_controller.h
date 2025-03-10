@@ -20,6 +20,10 @@ class UnitreeG1Controller : public drake::systems::Diagram<double> {
  private:
   const multibody::MultibodyPlant<double>& plant_;
   PD_Controller<double>* pd_controller_;
+  
+  // Approximate Simulation Parameters
+  double kappa_;
+  double kd_approx_;
 };
 
 }  // namespace unitree_g1

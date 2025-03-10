@@ -3,6 +3,7 @@
 #include "drake/multibody/plant/multibody_plant.h"
 #include "drake/systems/framework/context.h"
 #include "drake/systems/framework/diagram_builder.h"
+#include "drake/multibody/parsing/parser.h"
 
 namespace drake {
 namespace examples {
@@ -10,7 +11,12 @@ namespace unitree_g1 {
 
 GTEST_TEST(UnitreeG1ControllerTest, PDSubsystemIntegration) {
   // Setup Drake Multibody Plant
+  drake::systems::DiagramBuilder<double> builder;
   drake::multibody::MultibodyPlant<double> plant(0.001);
+
+  // Load the robot model before finalizing the plant
+  drake::multibody::Parser(&plant).AddModels("examples/unitree_g1/robots/g1_description/g1_23dof.urdf");
+
   plant.Finalize();
 
   // Define arbitrary PD gains for testing
