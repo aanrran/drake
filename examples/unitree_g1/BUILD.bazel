@@ -3,6 +3,32 @@ load("//tools/skylark:drake_cc.bzl", "drake_cc_binary", "drake_cc_googletest")
 
 package(default_visibility = ["//visibility:public"])
 
+cc_library(
+    name = "timing_logger",
+    srcs = ["helper/timing_logger.cc"],
+    hdrs = ["includes/timing_logger.h",],
+    deps = [
+        "@spdlog",
+        "@eigen",
+    ],
+)
+
+
+cc_library(
+    name = "unitree_g1_whole_body_controller",
+    srcs = ["controllers/unitree_g1_whole_body_controller.cc"],
+    hdrs = ["includes/unitree_g1_whole_body_controller.h"],
+    deps = [
+        "//examples/unitree_g1:timing_logger", 
+        "//examples/unitree_g1:walking_pattern_generator",
+        "//examples/unitree_g1:pd_controller", 
+        "//systems/framework:diagram",
+        "//multibody/plant",
+        "//systems/framework:framework",
+        "@eigen",
+    ],
+)
+
 
 cc_library(
     name = "walking_pattern_generator",
@@ -139,6 +165,24 @@ drake_cc_googletest(
         "//visualization:visualization_config_functions",
     ],
 )
+
+
+drake_cc_googletest(
+    name = "unitree_g1_whole_body_controller_test",
+    srcs = ["GTest/unitree_g1_whole_body_controller_test.cc"],
+    data = [
+        "robots/g1_description/g1_23dof.urdf",
+        "robots/g1_description/meshes",
+    ],
+    deps = [
+        "//examples/unitree_g1:unitree_g1_whole_body_controller",
+        "//examples/unitree_g1:timing_logger",
+        "//examples/unitree_g1:pd_controller", 
+        "//systems/analysis:simulator",
+        "@eigen",
+    ],
+)
+
 cc_binary(
     name = "walking_FSM_test",
     srcs = ["GTest/walking_FSM_test.cc"], 
