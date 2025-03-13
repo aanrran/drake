@@ -11,7 +11,7 @@
 
 class QPController {
 public:
-    explicit QPController(const drake::multibody::MultibodyPlant<double>& plant);
+    explicit QPController(const drake::multibody::MultibodyPlant<double>& plant, const drake::systems::Context<double>& context);
     Eigen::VectorXd SolveQP(
         const Eigen::VectorXd& q, 
         const Eigen::VectorXd& q_dot, 
@@ -20,7 +20,7 @@ public:
 
 private:
     const drake::multibody::MultibodyPlant<double>& plant_;
-    std::unique_ptr<drake::systems::Context<double>> context_;
+    const drake::systems::Context<double>& context_;
 
     // Time step for Euler integration
     double dt_;

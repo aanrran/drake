@@ -7,11 +7,10 @@
 #include <drake/common/eigen_types.h>
 #include <iostream>
 
-QPController::QPController(const drake::multibody::MultibodyPlant<double>& plant)
-    : plant_(plant) {
+QPController::QPController(const drake::multibody::MultibodyPlant<double>& plant, const drake::systems::Context<double>& context)
+    : plant_(plant), context_(context) {
     // Step 1: Initialize solver
     solver_ = std::make_unique<drake::solvers::OsqpSolver>();
-    context_ = plant_.CreateDefaultContext();
 }
 
 Eigen::VectorXd QPController::SolveQP(
@@ -40,12 +39,12 @@ Eigen::VectorXd QPController::SolveQP(
 
     // Step 5: Compute rigid-body dynamics terms
     Eigen::MatrixXd M(num_joints, num_joints);
-    plant_.CalcMassMatrix(*context_, &M);
+    plant_.CalcMassMatrix(context_, &M);
     
     Eigen::VectorXd C(num_joints);
-    plant_.CalcBiasTerm(*context_, &C);
+    plant_.CalcBiasTerm(context_, &C);
 
-    Eigen::VectorXd tau_g = plant_.CalcGravityGeneralizedForces(*context_);
+    Eigen::VectorXd tau_g = plant_.CalcGravityGeneralizedForces(context_);
 
     // Step 6: Compute Contact Jacobian
     Eigen::MatrixXd J_c(num_contacts * 3, num_joints);
@@ -55,7 +54,7 @@ Eigen::VectorXd QPController::SolveQP(
         Eigen::Vector3d p_WC = contact_points_[i];
 
         plant_.CalcJacobianTranslationalVelocity(
-            *context_, 
+            context_, 
             drake::multibody::JacobianWrtVariable::kQDot, 
             frame, 
             p_WC, 
