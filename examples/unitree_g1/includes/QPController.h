@@ -6,6 +6,7 @@
 #include <drake/solvers/osqp_solver.h>
 #include <drake/multibody/plant/multibody_plant.h>
 #include <drake/systems/framework/context.h>
+#include "drake/multibody/parsing/parser.h"
 #include <Eigen/Dense>
 #include <memory>
 
@@ -14,9 +15,7 @@ public:
     explicit QPController(const drake::multibody::MultibodyPlant<double>& plant, const drake::systems::Context<double>& context);
     Eigen::VectorXd SolveQP(
         const Eigen::VectorXd& q, 
-        const Eigen::VectorXd& q_dot, 
-        const Eigen::VectorXd& x_task_des, 
-        const Eigen::VectorXd& f_task_des);
+        const Eigen::VectorXd& q_dot);
 
 private:
     const drake::multibody::MultibodyPlant<double>& plant_;

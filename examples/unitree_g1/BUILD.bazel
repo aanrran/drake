@@ -13,6 +13,7 @@ cc_library(
         "//solvers:solve",
         "//solvers:osqp_solver",
         "//multibody/plant",
+        "//multibody/parsing:parser",
         "@eigen",
     ],
     visibility = ["//visibility:public"],
