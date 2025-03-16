@@ -29,8 +29,7 @@ UnitreeG1Controller<T>::UnitreeG1Controller(const MultibodyPlant<T>& plant)
 }
 
 template <typename T>
-void UnitreeG1Controller<T>::CalcTorque(const Context<T>& context,
-                                        BasicVector<T>* torque) const {
+void UnitreeG1Controller<T>::CalcTorque(const Context<T>& context, BasicVector<T>* torque) const {
   TimingLogger::GetInstance().StartTimer("RunController"); // timer started
   // Ensure the plant context is initialized before use
   DRAKE_DEMAND(plant_context_ != nullptr);

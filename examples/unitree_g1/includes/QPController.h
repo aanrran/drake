@@ -1,6 +1,5 @@
 // QPController.h - Header File
-#ifndef QP_CONTROLLER_H
-#define QP_CONTROLLER_H
+#pragma once
 
 #include <drake/solvers/mathematical_program.h>
 #include <drake/solvers/osqp_solver.h>
@@ -34,12 +33,15 @@ private:
     std::unique_ptr<drake::solvers::OsqpSolver> solver_;
 
     // System matrices and vectors
-    Eigen::MatrixXd W_tau_, W_f_, S_, J_task_, J_dot_task_, A_friction_;
-    Eigen::VectorXd tau_ref_, f_ref_, tau_min_, tau_max_, b_friction_;
+    // Eigen::MatrixXd W_tau_, W_f_, S_, J_task_, J_dot_task_, A_friction_;
+    // Eigen::VectorXd tau_ref_, f_ref_, tau_min_, tau_max_, b_friction_;
+
+    int num_joints_;
+    std::vector<Eigen::Vector3d> contact_points;
+    drake::solvers::MathematicalProgram prog_;
+    drake::solvers::VectorXDecisionVariable tau_, ddq_, f_c_;
 
     std::vector<Eigen::Vector3d> GetFootContactPoints() const;
-
+    void AddCoMCost();
 
 };
-
-#endif // QP_CONTROLLER_H
