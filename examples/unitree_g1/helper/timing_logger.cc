@@ -24,7 +24,7 @@ void TimingLogger::StopTimer(const std::string& timer_name) {
     longest_durations_[timer_name] = duration;
 
     // Clear the previous line and overwrite with new data
-    std::cout << "\r[Timing] " << timer_name << "'s longest run-time: " << duration << " us    " << std::flush;
+    std::cout << "\r[Timing] " << timer_name << "'s longest run-time: " << duration << " us    " << std::endl;
   }
 }
 
