@@ -37,6 +37,8 @@ private:
     Eigen::MatrixXd W_tau_, W_f_, S_, J_task_, J_dot_task_, A_friction_;
     Eigen::VectorXd tau_ref_, f_ref_, tau_min_, tau_max_, b_friction_;
 
+    std::vector<Eigen::Vector3d> GetFootContactPoints() const;
+
 
 };
 

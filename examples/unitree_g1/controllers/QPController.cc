@@ -11,7 +11,18 @@ QPController::QPController(const drake::multibody::MultibodyPlant<double>& plant
     : plant_(plant), context_(context) {
     // Step 1: Initialize solver
     solver_ = std::make_unique<drake::solvers::OsqpSolver>();
+    std::vector<Eigen::Vector3d> contact_points = GetFootContactPoints();
 }
+
+std::vector<Eigen::Vector3d> QPController::GetFootContactPoints() const {
+    return {
+        Eigen::Vector3d(-0.07,  0.08, -0.1),
+        Eigen::Vector3d(-0.07, -0.08, -0.1),
+        Eigen::Vector3d( 0.20, -0.08, -0.1),
+        Eigen::Vector3d( 0.20,  0.08, -0.1)
+    };
+}
+
 
 Eigen::VectorXd QPController::SolveQP(
     const Eigen::VectorXd& q, 
@@ -143,6 +154,7 @@ Eigen::VectorXd QPController::SolveQP(
             (J_right_E_ * ddq + Jd_qd_right_E_ - xdd_right_des));
 
     // Step 5: Compute rigid-body dynamics terms
+    S_ = Eigen::MatrixXd::Identity(num_joints, num_joints) * 100;
     Eigen::MatrixXd M(num_joints, num_joints);
     plant_.CalcMassMatrix(context_, &M);
     
@@ -154,26 +166,25 @@ Eigen::VectorXd QPController::SolveQP(
     // Step 6: Compute Contact Jacobian
     Eigen::MatrixXd J_c(contact_points_.size() * 3, num_joints);
     Eigen::MatrixXd J_temp(3, num_joints);
-    for (int i = 0; i < contact_points_.size(); ++i) {
-        const auto& frame = plant_.get_body(contact_bodies_[i]).body_frame();
+    for (size_t i = 0; i < contact_points_.size(); ++i) {
         plant_.CalcJacobianTranslationalVelocity(context_, drake::multibody::JacobianWrtVariable::kQDot,
-                                                frame, contact_points_[i],
-                                                plant_.world_frame(), plant_.world_frame(), &J_temp);
-        J_c.block(i * 3, 0, 3, num_joints) = J_temp;
+            left_foot_frame_, contact_points_[i],
+            plant_.world_frame(), plant_.world_frame(), &J_temp);
+            J_c.block(i * 3, 0, 3, num_joints) = J_temp;
     }
 
     // Step 7: Rigid-body dynamics constraint
-    prog.AddLinearEqualityConstraint(
-        (M * ddq + C + tau_g - S_.transpose() * tau - J_c.transpose() * f_c).eval(),
-        Eigen::VectorXd::Zero(num_joints)
-    );
+    // prog.AddLinearEqualityConstraint(
+    //     (M * ddq + C + tau_g - S_.transpose() * tau - J_c.transpose() * f_c).eval(),
+    //     Eigen::VectorXd::Zero(num_joints)
+    // );
     prog.AddLinearEqualityConstraint(M * ddq + C + tau_g - S_.transpose() * tau - J_c.transpose() * f_c,
                                      Eigen::VectorXd::Zero(num_joints));
     // Step 7: Contact force constraints (Friction cone)
     prog.AddLinearConstraint(A_friction_ * f_c <= b_friction_);
 
     // Step 8: Torque limits
-    prog.AddBoundingBoxConstraint(tau_min_, tau_max_, tau);
+    // prog.AddBoundingBoxConstraint(tau_min_, tau_max_, tau);
 
     // Step 8: Center-of-mass constraint (CoM acceleration)
     // prog.AddLinearEqualityConstraint(J_task_ * ddq + J_dot_task_ * q_dot, x_task_des);

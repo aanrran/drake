@@ -1,52 +1,41 @@
 #include "examples/unitree_g1/includes/unitree_g1_controller.h"
-#include "examples/unitree_g1/includes/timing_logger.h"
-#include "drake/systems/framework/diagram_builder.h"
-#include "drake/multibody/plant/multibody_plant.h"
-#include "drake/systems/primitives/pass_through.h"
-#include "drake/systems/primitives/matrix_gain.h"
-
 
 namespace drake {
 namespace examples {
 namespace unitree_g1 {
 
-UnitreeG1Controller::UnitreeG1Controller(
-    const multibody::MultibodyPlant<double>& plant,
-    const Eigen::VectorXd& kp,
-    const Eigen::VectorXd& kd,
-    double kappa, double kd_approx)
-    : plant_(plant), kappa_(kappa), kd_approx_(kd_approx) {
-  systems::DiagramBuilder<double> builder;
-  TimingLogger::GetInstance().StartTimer("DiagramBuild");
-  // 1. PD Controller
-  pd_controller_ = builder.AddSystem<PD_Controller<double>>(plant_, kp, kd);
+template <typename T>
+UnitreeG1Controller<T>::UnitreeG1Controller(const MultibodyPlant<T>& plant)
+    : plant_(plant) {
+  const int num_q = plant_.num_positions();
+  const int num_v = plant_.num_velocities();
+  const int num_x = num_q + num_v;
 
-  // 2. Declare Input Port for Whole-Body State
-  auto whole_body_state_input = builder.AddSystem<drake::systems::PassThrough<double>>(plant.num_positions());
-  
-  // 3. Compute CoM Jacobian
-  Eigen::MatrixXd Jcom(3, plant.num_positions());
-  plant.CalcJacobianCenterOfMassTranslationalVelocity(
-    *plant.CreateDefaultContext(),  // Context reference
-    multibody::JacobianWrtVariable::kQDot,  
-    plant.world_frame(),   // Base frame (World frame)
-    plant.world_frame(),   // Expressed in World frame
-    &Jcom  // Output matrix
-);
+  this->DeclareInputPort(systems::kUseDefaultName, drake::systems::kVectorValued, num_x);
+  this->DeclareVectorOutputPort("torque_output", num_v,
+                                &UnitreeG1Controller<T>::CalcTorque,
+                                {this->all_input_ports_ticket()});
 
-  
-  // 4. Define Control Law
-  auto approx_simulation_controller = builder.AddSystem<drake::systems::MatrixGain<double>>(Jcom);
-  
-  // 5. Connect Whole-Body State Input → Approximate Simulation Controller
-  builder.Connect(whole_body_state_input->get_output_port(), approx_simulation_controller->get_input_port());
-
-  // 6. Export Ports
-  builder.ExportInput(whole_body_state_input->get_input_port(), "whole_body_state");
-  builder.ExportOutput(approx_simulation_controller->get_output_port(), "approx_sim_output");
-  TimingLogger::GetInstance().StopTimer("DiagramBuild");
-  builder.BuildInto(this);
+  plant_context_ = plant_.CreateDefaultContext();
+  damping_gains_ = Eigen::ArrayXd::Constant(num_v, 0.1);
 }
+
+template <typename T>
+void UnitreeG1Controller<T>::CalcTorque(const Context<T>& context, BasicVector<T>* torque) const {
+  DRAKE_DEMAND(plant_context_ != nullptr);
+
+  const BasicVector<T>* input = this->EvalVectorInput(context, 0);
+  DRAKE_DEMAND(input != nullptr);
+  const Eigen::VectorXd& x = input->value();
+
+  plant_.SetPositionsAndVelocities(plant_context_.get(), x);
+
+  Eigen::VectorXd v = x.tail(plant_.num_velocities());
+  torque->get_mutable_value() = -(damping_gains_ * v.array()).matrix();
+}
+
+// Explicit template instantiation
+template class UnitreeG1Controller<double>;
 
 }  // namespace unitree_g1
 }  // namespace examples

@@ -29,9 +29,11 @@ cc_library(
         "//examples/unitree_g1:walking_pattern_generator",
         "//examples/unitree_g1:pd_controller",
         "//systems/framework:diagram",
+        "//systems/framework:leaf_system",
         "//systems/primitives:pass_through",
         "//systems/primitives:matrix_gain",
         "//multibody/plant",
+        "//multibody/tree",  # Ensures full MultibodyPlant support
         "//systems/analysis:simulator",
         "@eigen",
     ],
@@ -219,7 +221,9 @@ drake_cc_googletest(
     ],
     deps = [
         "//examples/unitree_g1:unitree_g1_controller",
+        "//examples/unitree_g1:plant_helpers", 
         "//multibody/parsing:parser",
+        "//systems/primitives:matrix_gain",
         "@eigen",
     ],
 )

@@ -1,31 +1,34 @@
 #pragma once
 
-#include <memory>
 #include "drake/multibody/plant/multibody_plant.h"
-#include "drake/systems/framework/diagram.h"
-#include "drake/systems/framework/diagram_builder.h"
-#include "examples/unitree_g1/includes/pd_controller.h"
+#include "drake/systems/framework/leaf_system.h"
+#include "drake/systems/framework/context.h"
+#include "drake/systems/framework/vector_system.h"
 
 namespace drake {
 namespace examples {
 namespace unitree_g1 {
 
-class UnitreeG1Controller : public drake::systems::Diagram<double> {
+using drake::systems::BasicVector;
+using drake::systems::Context;
+using drake::systems::LeafSystem;
+using drake::multibody::MultibodyPlant;
+
+template <typename T>
+class UnitreeG1Controller : public LeafSystem<T> {
  public:
-  UnitreeG1Controller(const multibody::MultibodyPlant<double>& plant,
-                      const Eigen::VectorXd& kp,
-                      const Eigen::VectorXd& kd,
-                      double kappa, double kd_approx);
+  explicit UnitreeG1Controller(const MultibodyPlant<T>& plant);
 
  private:
-  const multibody::MultibodyPlant<double>& plant_;
-  PD_Controller<double>* pd_controller_;
-  
-  // Approximate Simulation Parameters
-  double kappa_;
-  double kd_approx_;
+  const MultibodyPlant<T>& plant_;
+  std::unique_ptr<Context<T>> plant_context_;
+  Eigen::ArrayXd damping_gains_;
+
+  void CalcTorque(const Context<T>& context, BasicVector<T>* torque) const;
 };
 
 }  // namespace unitree_g1
 }  // namespace examples
 }  // namespace drake
+
+
