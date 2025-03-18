@@ -14,16 +14,16 @@ class ImpedanceController {
   explicit ImpedanceController(
       const drake::multibody::MultibodyPlant<double>& plant,
       const drake::systems::Context<double>& context,
-      const Eigen::VectorX<double>& stiffness,
-      const Eigen::VectorX<double>& damping_ratio);
+      Eigen::VectorX<double> stiffness,
+      Eigen::VectorX<double> damping_ratio);
 
-  Eigen::VectorXd CalcTorque(const Eigen::VectorXd& desired_position);
+  Eigen::VectorXd CalcTorque(Eigen::VectorXd desired_position);
 
  private:
   const drake::multibody::MultibodyPlant<double>& plant_;
   const drake::systems::Context<double>& context_;
 
-  const Eigen::VectorX<double>&stiffness_, damping_ratio_;
+  const Eigen::VectorX<double> stiffness_, damping_ratio_;
 
   // Angular momentum constraint matrices
   Eigen::MatrixXd A_am_;
@@ -38,7 +38,6 @@ class ImpedanceController {
   // Eigen::VectorXd tau_ref_, f_ref_, tau_min_, tau_max_, b_friction_;
 
   int num_joints_;
-  std::vector<Eigen::Vector3d> contact_points;
 
   std::vector<Eigen::Vector3d> GetFootContactPoints() const;
 };

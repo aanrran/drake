@@ -15,17 +15,17 @@ UnitreeG1Controller<T>::UnitreeG1Controller(const MultibodyPlant<T>& plant)
   const int num_x = num_q + num_v;
   // Declare input port for receiving the full robot state (positions +
   // velocities)
-  this->DeclareInputPort(systems::kUseDefaultName,
-                         drake::systems::kVectorValued, num_x);
+  this->DeclareInputPort(systems::kUseDefaultName, drake::systems::kVectorValued, num_x);
   // Declare output port for computing and sending torque commands
   this->DeclareVectorOutputPort("torque_output", num_v,
                                 &UnitreeG1Controller<T>::CalcTorque,
                                 {this->all_input_ports_ticket()});
   // Create a default context for the plant model
   plant_context_ = plant_.CreateDefaultContext();
-  // Initialize damping gains for passive joint damping (can be tuned for better
-  // performance)
-  damping_gains_ = Eigen::ArrayXd::Constant(num_v, 0.1);
+  // Initialize the Impedance Controller
+  Eigen::VectorXd stiffness = Eigen::VectorXd::Zero(num_q);
+  Eigen::VectorXd damping_ratio = Eigen::VectorXd::Zero(num_v);
+  my_controller_ = std::make_unique<ImpedanceController>(plant_, *plant_context_, stiffness, damping_ratio);
 }
 
 template <typename T>
@@ -39,10 +39,10 @@ void UnitreeG1Controller<T>::CalcTorque(const Context<T>& context, BasicVector<T
   const Eigen::VectorXd& x = input->value();  // Extract full state vector
   // Update plant's internal state representation (positions + velocities)
   plant_.SetPositionsAndVelocities(plant_context_.get(), x);
-  // Extract velocity portion (v) of the state
-  Eigen::VectorXd v = x.tail(plant_.num_velocities());
+
   // Compute damping torque: τ = -D * v, where D is a diagonal damping matrix
-  torque->get_mutable_value() = -(damping_gains_ * v.array()).matrix();
+  Eigen::VectorXd desired_position = Eigen::VectorXd::Zero(plant_.num_positions());
+  torque->get_mutable_value() = my_controller_->CalcTorque(desired_position);
   TimingLogger::GetInstance().StopTimer("RunController"); // timer stopped
 }
 

@@ -36,6 +36,7 @@ cc_library(
     srcs = ["controllers/unitree_g1_controller.cc"],
     hdrs = ["includes/unitree_g1_controller.h"],
     deps = [
+        "//examples/unitree_g1:impedance_controller", 
         "//examples/unitree_g1:timing_logger", 
         "//systems/framework:diagram",
         "//systems/framework:leaf_system",

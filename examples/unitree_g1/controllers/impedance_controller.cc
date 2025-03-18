@@ -11,13 +11,13 @@ namespace unitree_g1 {
 ImpedanceController::ImpedanceController(
     const drake::multibody::MultibodyPlant<double>& plant,
     const drake::systems::Context<double>& context,
-    const Eigen::VectorX<double>& stiffness,
-    const Eigen::VectorX<double>& damping_ratio)
+    Eigen::VectorX<double> stiffness,
+    Eigen::VectorX<double> damping_ratio)
     : plant_(plant),
       context_(context),
       stiffness_(stiffness),
       damping_ratio_(damping_ratio) {
-  contact_points = GetFootContactPoints();
+  contact_points_ = GetFootContactPoints();
 }
 
 std::vector<Eigen::Vector3d> ImpedanceController::GetFootContactPoints() const {
@@ -26,7 +26,9 @@ std::vector<Eigen::Vector3d> ImpedanceController::GetFootContactPoints() const {
       Eigen::Vector3d(0.20, -0.08, -0.1), Eigen::Vector3d(0.20, 0.08, -0.1)};
 }
 
-Eigen::VectorXd ImpedanceController::CalcTorque(const Eigen::VectorXd& desired_position) {
+Eigen::VectorXd ImpedanceController::CalcTorque(Eigen::VectorXd desired_position) {
+
+    
   // **Compute stiffness torque**
   const drake::VectorX<double> state_position = plant_.GetPositions(context_);
   Eigen::VectorXd position_error = state_position - desired_position;
@@ -42,7 +44,7 @@ Eigen::VectorXd ImpedanceController::CalcTorque(const Eigen::VectorXd& desired_p
   Eigen::ArrayXd temp = H.diagonal().array() * stiffness_.array();
   Eigen::ArrayXd damping_gains = 2 * temp.sqrt();
   damping_gains *= damping_ratio_.array();
-  
+
   // Compute damping torque.
   Eigen::VectorXd u_damping = -(damping_gains * state_velocity.array()).matrix();
   return u_stiffness + u_damping;

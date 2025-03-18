@@ -1,5 +1,5 @@
 #pragma once
-
+#include "examples/unitree_g1/includes/impedance_controller.h"
 #include "drake/multibody/plant/multibody_plant.h"
 #include "drake/systems/framework/context.h"
 #include "drake/systems/framework/leaf_system.h"
@@ -48,7 +48,7 @@ class UnitreeG1Controller : public LeafSystem<T> {
    */
   std::unique_ptr<Context<T>> plant_context_;
 
-  Eigen::ArrayXd damping_gains_;
+  std::unique_ptr<ImpedanceController> my_controller_; 
   /**
    * @brief Computes torque output for the robot based on velocity damping.
    *
