@@ -19,6 +19,17 @@ cc_library(
     visibility = ["//visibility:public"],
 )
 
+cc_library(
+    name = "impedance_controller",
+    srcs = ["controllers/impedance_controller.cc"],
+    hdrs = ["includes/impedance_controller.h"],
+    deps = [
+        "//examples/unitree_g1:simple_PID", 
+        "//examples/unitree_g1:timing_logger", 
+        "//multibody/plant",
+        "@eigen",
+    ],
+)
 
 cc_library(
     name = "unitree_g1_controller",
