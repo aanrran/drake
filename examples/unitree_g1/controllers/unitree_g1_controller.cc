@@ -23,8 +23,8 @@ UnitreeG1Controller<T>::UnitreeG1Controller(const MultibodyPlant<T>& plant)
   // Create a default context for the plant model
   plant_context_ = plant_.CreateDefaultContext();
   // Initialize the Impedance Controller
-  Eigen::VectorXd stiffness = Eigen::VectorXd::Zero(num_q);
-  Eigen::VectorXd damping_ratio = Eigen::VectorXd::Zero(num_v);
+  Eigen::VectorXd stiffness = Eigen::VectorXd::Constant(num_q, 10.5);
+  Eigen::VectorXd damping_ratio = Eigen::VectorXd::Constant(num_v, 0.7);
   my_controller_ = std::make_unique<ImpedanceController>(plant_, *plant_context_, stiffness, damping_ratio);
 }
 

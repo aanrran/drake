@@ -229,6 +229,27 @@ cc_binary(
 
 )
 
+cc_binary(
+    name = "controller_in_simulator_test",
+    srcs = ["GTest/controller_in_simulator_test.cc"], 
+    data = [
+        "robots/g1_description/g1_23dof.urdf",
+        "robots/g1_description/meshes",
+    ],
+    deps = [
+        "//examples/unitree_g1:unitree_g1_controller",
+        "//examples/unitree_g1:plant_helpers", 
+        "//multibody/parsing:parser",
+        "//systems/primitives:matrix_gain",
+        "//systems/analysis:simulator",
+        "//geometry:scene_graph",
+        "//visualization:visualization_config_functions",
+        "@eigen",
+        "@gflags",
+    ],
+
+)
+
 drake_cc_googletest(
     name = "unitree_g1_controller_test",
     srcs = ["GTest/unitree_g1_controller_test.cc"],

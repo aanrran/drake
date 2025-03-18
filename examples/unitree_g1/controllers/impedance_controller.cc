@@ -31,7 +31,7 @@ Eigen::VectorXd ImpedanceController::CalcTorque(Eigen::VectorXd desired_position
     
   // **Compute stiffness torque**
   const drake::VectorX<double> state_position = plant_.GetPositions(context_);
-  Eigen::VectorXd position_error = state_position - desired_position;
+  Eigen::VectorXd position_error = desired_position - state_position;
   Eigen::VectorXd u_stiffness = (stiffness_.array() * position_error.array()).matrix();
   // Compute damping torque
   const drake::VectorX<double> state_velocity = plant_.GetVelocities(context_);
@@ -47,7 +47,8 @@ Eigen::VectorXd ImpedanceController::CalcTorque(Eigen::VectorXd desired_position
 
   // Compute damping torque.
   Eigen::VectorXd u_damping = -(damping_gains * state_velocity.array()).matrix();
-  return u_stiffness + u_damping;
+  return u_stiffness.tail(num_v) + u_damping;
+  // return Eigen::VectorXd::Zero(num_v);
 }
 
 }  // namespace unitree_g1
