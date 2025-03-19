@@ -40,6 +40,10 @@ class ImpedanceController {
   int num_joints_;
 
   std::vector<Eigen::Vector3d> GetFootContactPoints() const;
+  MatrixX<double> ComputeNullSpaceProjectionQR(const MatrixX<double>& J_c);
+  MatrixX<double> ComputeContactJacobian(
+    const drake::multibody::Frame<double>& foot_frame,
+    const std::vector<Eigen::Vector3d>& contact_points);
 };
 }  // namespace unitree_g1
 }  // namespace examples
