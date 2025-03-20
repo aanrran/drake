@@ -37,6 +37,7 @@ class UnitreeG1Controller : public LeafSystem<T> {
   explicit UnitreeG1Controller(const MultibodyPlant<T>& plant);
 
  private:
+  Eigen::VectorXd desired_position_;
   /** Reference to the MultibodyPlant model of the robot (not owned by this
    * class). */
   const MultibodyPlant<T>& plant_;

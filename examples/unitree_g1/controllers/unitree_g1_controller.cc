@@ -26,23 +26,9 @@ UnitreeG1Controller<T>::UnitreeG1Controller(const MultibodyPlant<T>& plant)
   Eigen::VectorXd stiffness = Eigen::VectorXd::Constant(num_q, 10.5);
   Eigen::VectorXd damping_ratio = Eigen::VectorXd::Constant(num_v, 0.7);
   my_controller_ = std::make_unique<ImpedanceController>(plant_, *plant_context_, stiffness, damping_ratio);
-}
 
-template <typename T>
-void UnitreeG1Controller<T>::CalcTorque(const Context<T>& context, BasicVector<T>* torque) const {
-  TimingLogger::GetInstance().StartTimer("RunController"); // timer started
-  // Ensure the plant context is initialized before use
-  DRAKE_DEMAND(plant_context_ != nullptr);
-  // Retrieve the state input (q, v) from the input port
-  const BasicVector<T>* input = this->EvalVectorInput(context, 0);
-  DRAKE_DEMAND(input != nullptr);
-  const Eigen::VectorXd& x = input->value();  // Extract full state vector
-  // Update plant's internal state representation (positions + velocities)
-  plant_.SetPositionsAndVelocities(plant_context_.get(), x);
-
-  // Compute damping torque: τ = -D * v, where D is a diagonal damping matrix
-  Eigen::VectorXd desired_position = Eigen::VectorXd::Zero(plant_.num_positions());
-  desired_position << 
+  desired_position_ = Eigen::VectorXd::Zero(num_q);
+  desired_position_ << 
   0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
       -2.0,               // left_hip_pitch_joint
       0.0,               // left_hip_roll_joint
@@ -67,7 +53,22 @@ void UnitreeG1Controller<T>::CalcTorque(const Context<T>& context, BasicVector<T
       0.0,               // right_shoulder_yaw_joint
       0.0,               // right_elbow_joint
       0.0;               // right_wrist_roll_joint
-  torque->get_mutable_value() = my_controller_->CalcTorque(desired_position);
+}
+
+template <typename T>
+void UnitreeG1Controller<T>::CalcTorque(const Context<T>& context, BasicVector<T>* torque) const {
+  TimingLogger::GetInstance().StartTimer("RunController"); // timer started
+  // Ensure the plant context is initialized before use
+  DRAKE_DEMAND(plant_context_ != nullptr);
+  // Retrieve the state input (q, v) from the input port
+  const BasicVector<T>* input = this->EvalVectorInput(context, 0);
+  DRAKE_DEMAND(input != nullptr);
+  const Eigen::VectorXd& x = input->value();  // Extract full state vector
+  // Update plant's internal state representation (positions + velocities)
+  plant_.SetPositionsAndVelocities(plant_context_.get(), x);
+
+  // Compute damping torque: τ = -D * v, where D is a diagonal damping matrix
+  torque->get_mutable_value() = my_controller_->CalcTorque(desired_position_);
   TimingLogger::GetInstance().StopTimer("RunController"); // timer stopped
 }
 
