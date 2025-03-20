@@ -1,11 +1,12 @@
 // impedance_controller.cc - Source File
 #include "examples/unitree_g1/includes/impedance_controller.h"
-#include "drake/math/rigid_transform.h"
-#include "drake/multibody/tree/multibody_tree.h"
 
 #include <iostream>
 
 #include <drake/common/eigen_types.h>
+
+#include "drake/math/rigid_transform.h"
+#include "drake/multibody/tree/multibody_tree.h"
 
 namespace drake {
 namespace examples {
@@ -128,16 +129,16 @@ Eigen::VectorXd ImpedanceController::CalcTorque(
   com_cmd.z() = 0.7;
 
   // Get the current CoM position
-  drake::Vector3<double> com_position = plant_.CalcCenterOfMassPositionInWorld(context_);
+  drake::Vector3<double> com_position =
+      plant_.CalcCenterOfMassPositionInWorld(context_);
 
   // Resize Jacobian explicitly
   Eigen::MatrixXd J_com(3, num_v);
 
   // Call Drake's API correctly (do NOT dereference context_)
   plant_.CalcJacobianCenterOfMassTranslationalVelocity(
-      context_, drake::multibody::JacobianWrtVariable::kV,
-      plant_.world_frame(), plant_.world_frame(), &J_com);
-
+      context_, drake::multibody::JacobianWrtVariable::kV, plant_.world_frame(),
+      plant_.world_frame(), &J_com);
 
   // Compute CoM velocity
   Eigen::Vector3d com_velocity = J_com * state_velocity;
@@ -146,6 +147,14 @@ Eigen::VectorXd ImpedanceController::CalcTorque(
   Eigen::MatrixXd Lambda_com =
       (J_com * Mass_matrix.inverse() * J_com.transpose()).inverse();
 
+  // Compute the bias acceleration (Coriolis and centrifugal effects)
+  Eigen::Vector3d com_bias_accel =
+      plant_.CalcBiasCenterOfMassTranslationalAcceleration(
+          context_,
+          drake::multibody::JacobianWrtVariable::kV,  // ✅ Use kV
+          plant_.world_frame(),  // Expressed in world frame
+          plant_.world_frame()   // Measured relative to world
+      );
   // PD Controller for CoM
   Eigen::Vector3d Kp_com(200.0, 200.0, 100.0);
   Eigen::Vector3d Kd_com(50.0, 50.0, 10.0);
@@ -155,7 +164,7 @@ Eigen::VectorXd ImpedanceController::CalcTorque(
 
   // Compute raw torque command
   Eigen::VectorXd u_com_raw =
-      J_com.transpose() * Lambda_com * com_accel_desired;
+      J_com.transpose() * Lambda_com * (com_accel_desired+com_bias_accel);
 
   // Project torques into null space
   Eigen::VectorXd u_com = N_c * u_com_raw;
