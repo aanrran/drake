@@ -42,6 +42,31 @@ void UnitreeG1Controller<T>::CalcTorque(const Context<T>& context, BasicVector<T
 
   // Compute damping torque: τ = -D * v, where D is a diagonal damping matrix
   Eigen::VectorXd desired_position = Eigen::VectorXd::Zero(plant_.num_positions());
+  desired_position << 
+  0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+      -2.0,               // left_hip_pitch_joint
+      0.0,               // left_hip_roll_joint
+      0.0,               // left_hip_yaw_joint
+      0.5,               // left_knee_joint
+      -0.25,               // left_ankle_pitch_joint
+      0.0,               // left_ankle_roll_joint
+      -2.0,               // right_hip_pitch_joint
+      0.0,               // right_hip_roll_joint
+      0.0,               // right_hip_yaw_joint
+      0.5,               // right_knee_joint
+      -0.25,               // right_ankle_pitch_joint
+      0.0,               // right_ankle_roll_joint
+      0.0,               // waist_yaw_joint
+      0.0,               // left_shoulder_pitch_joint
+      0.0,               // left_shoulder_roll_joint
+      0.0,               // left_shoulder_yaw_joint
+      0.0,               // left_elbow_joint
+      0.0,               // left_wrist_roll_joint
+      0.0,               // right_shoulder_pitch_joint
+      0.0,               // right_shoulder_roll_joint
+      0.0,               // right_shoulder_yaw_joint
+      0.0,               // right_elbow_joint
+      0.0;               // right_wrist_roll_joint
   torque->get_mutable_value() = my_controller_->CalcTorque(desired_position);
   TimingLogger::GetInstance().StopTimer("RunController"); // timer stopped
 }
