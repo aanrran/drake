@@ -22,10 +22,10 @@ ImpedanceController::ImpedanceController(
 }
 
 std::vector<Eigen::Vector3d> ImpedanceController::GetFootContactPoints() const {
-  return {Eigen::Vector3d(-0.007, 0.008, -0.1),
-          Eigen::Vector3d(-0.007, -0.008, -0.1),
-          Eigen::Vector3d(0.020, -0.008, -0.1),
-          Eigen::Vector3d(0.020, 0.008, -0.1)};
+  return {Eigen::Vector3d(-0.007, 0.008, -0.01),
+          Eigen::Vector3d(-0.007, -0.008, -0.01),
+          Eigen::Vector3d(0.020, -0.008, -0.01),
+          Eigen::Vector3d(0.020, 0.008, -0.01)};
 }
 
 // Efficient computation of the null-space projection matrix using QR
@@ -106,23 +106,23 @@ Eigen::VectorXd ImpedanceController::CalcTorque(
   const auto& right_foot = plant_.GetBodyByName("right_ankle_roll_link");
   MatrixX<double> J_c_right_feet =
       ComputeContactJacobian(right_foot.body_frame(), contact_points);
-  const auto& left_foot = plant_.GetBodyByName("left_ankle_roll_link");
-  MatrixX<double> J_c_left_feet =
-      ComputeContactJacobian(left_foot.body_frame(), contact_points);
+  // const auto& left_foot = plant_.GetBodyByName("left_ankle_roll_link");
+  // MatrixX<double> J_c_left_feet =
+  //     ComputeContactJacobian(left_foot.body_frame(), contact_points);
   // Create final stacked Jacobian matrix
-  MatrixX<double> J_c(J_c_right_feet.rows() * 2, num_v);
-  // // Stack left and right foot Jacobians
-  J_c.topRows(J_c_right_feet.rows()) = J_c_right_feet;
-  J_c.bottomRows(J_c_left_feet.rows()) = J_c_left_feet;
+  // MatrixX<double> J_c(J_c_right_feet.rows() * 2, num_v);
+  // // // Stack left and right foot Jacobians
+  // J_c.topRows(J_c_right_feet.rows()) = J_c_right_feet;
+  // J_c.bottomRows(J_c_left_feet.rows()) = J_c_left_feet;
 
-  MatrixX<double> N_c = ComputeNullSpaceProjectionQR(J_c);
+  MatrixX<double> N_c = ComputeNullSpaceProjectionQR(J_c_right_feet);
   Eigen::VectorXd tau_g = plant_.CalcGravityGeneralizedForces(context_);
 
   // Compute the midpoint between the left and right foot positions
   const auto& X_WR = plant_.EvalBodyPoseInWorld(context_, right_foot);
-  const auto& X_WL = plant_.EvalBodyPoseInWorld(context_, left_foot);
+  // const auto& X_WL = plant_.EvalBodyPoseInWorld(context_, left_foot);
 
-  Eigen::Vector3d com_cmd = 0.5 * (X_WL.translation() + X_WR.translation());
+  Eigen::Vector3d com_cmd = X_WR.translation();
 
   // set 0.5 meter in the z-direction
   com_cmd.z() = 0.7;
@@ -138,6 +138,7 @@ Eigen::VectorXd ImpedanceController::CalcTorque(
       context_, drake::multibody::JacobianWrtVariable::kV,
       plant_.world_frame(), plant_.world_frame(), &J_com);
 
+
   // Compute CoM velocity
   Eigen::Vector3d com_velocity = J_com * state_velocity;
 
@@ -146,8 +147,8 @@ Eigen::VectorXd ImpedanceController::CalcTorque(
       (J_com * Mass_matrix.inverse() * J_com.transpose()).inverse();
 
   // PD Controller for CoM
-  Eigen::Vector3d Kp_com(100.0, 100.0, 100.0);
-  Eigen::Vector3d Kd_com(10.0, 10.0, 10.0);
+  Eigen::Vector3d Kp_com(200.0, 200.0, 100.0);
+  Eigen::Vector3d Kd_com(50.0, 50.0, 10.0);
   Eigen::Vector3d com_accel_desired =
       Kp_com.cwiseProduct(com_cmd - com_position) +
       Kd_com.cwiseProduct(-com_velocity);

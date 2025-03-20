@@ -30,10 +30,10 @@ UnitreeG1Controller<T>::UnitreeG1Controller(const MultibodyPlant<T>& plant)
   desired_position_ = Eigen::VectorXd::Zero(num_q);
   desired_position_ << 
   0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-      -2.0,               // left_hip_pitch_joint
+      -3.0,               // left_hip_pitch_joint
       0.0,               // left_hip_roll_joint
       0.0,               // left_hip_yaw_joint
-      0.5,               // left_knee_joint
+      0.75,               // left_knee_joint
       -0.25,               // left_ankle_pitch_joint
       0.0,               // left_ankle_roll_joint
       -2.0,               // right_hip_pitch_joint
