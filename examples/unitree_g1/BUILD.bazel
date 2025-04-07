@@ -27,6 +27,7 @@ cc_library(
         "//examples/unitree_g1:simple_PID", 
         "//examples/unitree_g1:timing_logger", 
         "//multibody/plant",
+        "//multibody/plant:multibody_plant_config_functions",
         "@drake//math",
         "@drake//multibody/tree",
         "@drake//common",

@@ -2,6 +2,7 @@
 #pragma once
 
 #include <memory>
+
 #include <Eigen/Dense>
 #include <drake/multibody/plant/multibody_plant.h>
 #include <drake/systems/framework/context.h>
@@ -14,8 +15,7 @@ class ImpedanceController {
   explicit ImpedanceController(
       const drake::multibody::MultibodyPlant<double>& plant,
       const drake::systems::Context<double>& context,
-      Eigen::VectorX<double> stiffness,
-      Eigen::VectorX<double> damping_ratio);
+      Eigen::VectorX<double> stiffness, Eigen::VectorX<double> damping_ratio);
 
   Eigen::VectorXd CalcTorque(Eigen::VectorXd desired_position);
 
@@ -42,8 +42,13 @@ class ImpedanceController {
   std::vector<Eigen::Vector3d> GetFootContactPoints() const;
   MatrixX<double> ComputeNullSpaceProjectionQR(const MatrixX<double>& J_c);
   MatrixX<double> ComputeContactJacobian(
-    const drake::multibody::Frame<double>& foot_frame,
-    const std::vector<Eigen::Vector3d>& contact_points);
+      const drake::multibody::Frame<double>& foot_frame,
+      const std::vector<Eigen::Vector3d>& contact_points);
+  MatrixX<double> ComputContactBias(
+      const drake::multibody::Frame<double>& foot_frame,
+      const std::vector<Eigen::Vector3d>& contact_points);
+  MatrixX<double> ComputeJacobianPseudoInverse(const MatrixX<double>& J,
+                                               double damping_eps = 1e-6);
 };
 }  // namespace unitree_g1
 }  // namespace examples

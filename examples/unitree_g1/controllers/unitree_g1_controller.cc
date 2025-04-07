@@ -33,8 +33,8 @@ UnitreeG1Controller<T>::UnitreeG1Controller(const MultibodyPlant<T>& plant)
       -3.0,               // left_hip_pitch_joint
       0.0,               // left_hip_roll_joint
       0.0,               // left_hip_yaw_joint
-      0.75,               // left_knee_joint
-      -0.25,               // left_ankle_pitch_joint
+      3.75,               // left_knee_joint
+      -1.25,               // left_ankle_pitch_joint
       0.0,               // left_ankle_roll_joint
       -2.0,               // right_hip_pitch_joint
       0.0,               // right_hip_roll_joint
@@ -66,7 +66,6 @@ void UnitreeG1Controller<T>::CalcTorque(const Context<T>& context, BasicVector<T
   const Eigen::VectorXd& x = input->value();  // Extract full state vector
   // Update plant's internal state representation (positions + velocities)
   plant_.SetPositionsAndVelocities(plant_context_.get(), x);
-
   // Compute damping torque: τ = -D * v, where D is a diagonal damping matrix
   torque->get_mutable_value() = my_controller_->CalcTorque(desired_position_);
   TimingLogger::GetInstance().StopTimer("RunController"); // timer stopped

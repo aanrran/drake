@@ -42,7 +42,7 @@ int do_main() {
   AddActuatorsToPlant(plant);
 
   // ✅ 4. Set Initial Robot Pose
-  const double initial_z_offset = 0.75;
+  const double initial_z_offset = 0.74;
   plant.SetDefaultFreeBodyPose(
       plant.GetBodyByName("pelvis", model_instance),
       RigidTransformd(Eigen::Translation3d(0, 0, initial_z_offset)));
@@ -57,14 +57,14 @@ int do_main() {
 
   // ✅ 6. add gravity adjustment feature
   plant.mutable_gravity_field().set_gravity_vector(Eigen::Vector3d(
-      0, 0, -2.81));  // Default -9.81 for Earth gravity, -1.625 for moon
+      0, 0, -0.81));  // Default -9.81 for Earth gravity, -1.625 for moon
 
   // ✅ 7. Finalize Plant Before Using Actuated DOFs
   plant.Finalize();
 
   // Instantiate the UnitreeG1Controller and add it to the diagram.
   auto controller = builder.AddSystem<UnitreeG1Controller<double>>(plant);
-
+  
   // Connect the MultibodyPlant's state output to the controller's input.
   builder.Connect(plant.get_state_output_port(), controller->get_input_port());
 

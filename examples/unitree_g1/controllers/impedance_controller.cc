@@ -6,6 +6,7 @@
 #include <drake/common/eigen_types.h>
 
 #include "drake/math/rigid_transform.h"
+#include "drake/multibody/plant/multibody_plant.h"
 #include "drake/multibody/tree/multibody_tree.h"
 
 namespace drake {
@@ -50,17 +51,40 @@ MatrixX<double> ImpedanceController::ComputeNullSpaceProjectionQR(
   return N_c;
 }
 
+MatrixX<double> ImpedanceController::ComputeJacobianPseudoInverse(
+    const MatrixX<double>& J, double damping_eps) {
+  if (J.rows() < J.cols()) {
+    // Underdetermined: use Jᵗ (JJᵗ)⁻¹
+    MatrixX<double> JJt = J * J.transpose();
+    JJt.diagonal().array() += damping_eps;
+    MatrixX<double> JJt_inv =
+        JJt.llt().solve(MatrixX<double>::Identity(J.rows(), J.rows()));
+    return J.transpose() * JJt_inv;
+  } else {
+    // Overdetermined: use (JᵗJ)⁻¹ Jᵗ
+    MatrixX<double> JtJ = J.transpose() * J;
+    JtJ.diagonal().array() += damping_eps;
+    MatrixX<double> JtJ_inv =
+        JtJ.llt().solve(MatrixX<double>::Identity(J.cols(), J.cols()));
+    return JtJ_inv * J.transpose();
+  }
+}
+
 MatrixX<double> ImpedanceController::ComputeContactJacobian(
     const drake::multibody::Frame<double>& foot_frame,
     const std::vector<Eigen::Vector3d>& contact_points) {
   int num_contacts = contact_points.size();
-  int num_velocities = plant_.num_velocities();
+  const int num_v = plant_.num_velocities();
+//   const int num_a = plant_.num_actuators();   // number of actuated DoFs
 
-  // Contact Jacobian: Each point contributes a 3xN matrix (x, y, z velocity)
-  MatrixX<double> J_c(3 * num_contacts, num_velocities);
+//   // Assumes the first 6 DoFs are unactuated (floating base)
+//   Eigen::MatrixXd U = Eigen::MatrixXd::Zero(num_v, num_v);
+//   U.block(num_v - num_a, num_v - num_a, num_a, num_a) = Eigen::MatrixXd::Identity(num_a, num_a);
+//   Contact Jacobian: Each point contributes a 3xN matrix (x, y, z velocity)
+  MatrixX<double> J_c(3 * num_contacts, num_v);
 
   for (int i = 0; i < num_contacts; ++i) {
-    MatrixX<double> J_temp(3, num_velocities);
+    MatrixX<double> J_temp(3, num_v);
 
     // Compute translational velocity Jacobian for each contact point
     plant_.CalcJacobianTranslationalVelocity(
@@ -74,10 +98,36 @@ MatrixX<double> ImpedanceController::ComputeContactJacobian(
         &J_temp);
 
     // Stack the Jacobian
-    J_c.block(3 * i, 0, 3, num_velocities) = J_temp;
+    J_c.block(3 * i, 0, 3, num_v) = J_temp;
   }
 
   return J_c;
+}
+
+MatrixX<double> ImpedanceController::ComputContactBias(
+    const drake::multibody::Frame<double>& foot_frame,
+    const std::vector<Eigen::Vector3d>& contact_points) {
+  int num_contacts = contact_points.size();
+  int num_velocities = plant_.num_velocities();
+
+  // Contact Jacobian: Each point contributes a 3xN vector (x, y, z velocity)
+  VectorX<double> JdotV_r(3 * num_contacts);
+
+  for (int i = 0; i < num_contacts; ++i) {
+    MatrixX<double> J_temp(3, num_velocities);
+
+    VectorX<double> JdotV_r_temp = plant_.CalcBiasTranslationalAcceleration(
+        context_, drake::multibody::JacobianWrtVariable::kV,
+        foot_frame,            // Measured frame
+        contact_points[0],     // Point of interest
+        plant_.world_frame(),  // Expressed in frame
+        plant_.world_frame()   // Measured in frame
+    );
+    // Stack the Jacobian
+    JdotV_r.segment<3>(3 * i) = JdotV_r_temp;
+  }
+
+  return JdotV_r;
 }
 
 Eigen::VectorXd ImpedanceController::CalcTorque(
@@ -90,6 +140,11 @@ Eigen::VectorXd ImpedanceController::CalcTorque(
   // Compute damping torque
   const drake::VectorX<double> state_velocity = plant_.GetVelocities(context_);
   const int num_v = plant_.num_velocities();
+  const int num_a = plant_.num_actuators();   // number of actuated DoFs
+
+  // Assumes the first 6 DoFs are unactuated (floating base)
+  Eigen::MatrixXd U = Eigen::MatrixXd::Zero(num_v, num_v);
+  U.block(num_v - num_a, num_v - num_a, num_a, num_a) = Eigen::MatrixXd::Identity(num_a, num_a);
   // Compute mass matrix H
   Eigen::MatrixXd Mass_matrix(num_v, num_v);
   plant_.CalcMassMatrixViaInverseDynamics(context_, &Mass_matrix);
@@ -105,19 +160,46 @@ Eigen::VectorXd ImpedanceController::CalcTorque(
 
   std::vector<Eigen::Vector3d> contact_points = GetFootContactPoints();
   const auto& right_foot = plant_.GetBodyByName("right_ankle_roll_link");
-  MatrixX<double> J_c_right_feet =
+  MatrixX<double> J_r =
       ComputeContactJacobian(right_foot.body_frame(), contact_points);
   // const auto& left_foot = plant_.GetBodyByName("left_ankle_roll_link");
   // MatrixX<double> J_c_left_feet =
   //     ComputeContactJacobian(left_foot.body_frame(), contact_points);
   // Create final stacked Jacobian matrix
-  // MatrixX<double> J_c(J_c_right_feet.rows() * 2, num_v);
+  // MatrixX<double> J_c(J_r.rows() * 2, num_v);
   // // // Stack left and right foot Jacobians
-  // J_c.topRows(J_c_right_feet.rows()) = J_c_right_feet;
+  // J_c.topRows(J_r.rows()) = J_r;
   // J_c.bottomRows(J_c_left_feet.rows()) = J_c_left_feet;
 
-  MatrixX<double> N_c = ComputeNullSpaceProjectionQR(J_c_right_feet);
+  MatrixX<double> N_r = ComputeNullSpaceProjectionQR(J_r);
   Eigen::VectorXd tau_g = plant_.CalcGravityGeneralizedForces(context_);
+
+  // 3. Compute vdot (generalized accelerations)
+  auto vdot = plant_.get_generalized_acceleration_output_port().Eval(context_);
+
+  // 4. Compute dynamics terms
+
+  VectorX<double> C(num_v);
+  plant_.CalcBiasTerm(context_, &C);  // b + g
+
+  // 5. Get tau from actuator input
+
+  // 6. Compute residual: J^T f_r
+  VectorX<double> contact_estimate = Mass_matrix * vdot + C + tau_g;
+
+  // (1) Compute J_r and pseudoinverse
+  MatrixX<double> J_r_pinv = ComputeJacobianPseudoInverse(J_r*U);
+  // (2) Compute J̇·v
+  VectorX<double> JdotV_r =
+      ComputContactBias(right_foot.body_frame(), contact_points);
+  // (3) Compute desired acceleration
+  double alpha_r = 0.01;  // damping factor
+  VectorX<double> accel_task_r =
+      -J_r_pinv * (JdotV_r + alpha_r * J_r * state_velocity);
+
+  // (4) Compute task torque
+  VectorX<double> tau_r =
+      Mass_matrix * accel_task_r + C + tau_g - contact_estimate;
 
   // Compute the midpoint between the left and right foot positions
   const auto& X_WR = plant_.EvalBodyPoseInWorld(context_, right_foot);
@@ -126,7 +208,7 @@ Eigen::VectorXd ImpedanceController::CalcTorque(
   Eigen::Vector3d com_cmd = X_WR.translation();
 
   // set 0.5 meter in the z-direction
-  com_cmd.z() = 0.7;
+  com_cmd.z() = 0.68;
 
   // Get the current CoM position
   drake::Vector3<double> com_position =
@@ -139,39 +221,43 @@ Eigen::VectorXd ImpedanceController::CalcTorque(
   plant_.CalcJacobianCenterOfMassTranslationalVelocity(
       context_, drake::multibody::JacobianWrtVariable::kV, plant_.world_frame(),
       plant_.world_frame(), &J_com);
-
+  Eigen::MatrixXd J_com_r = J_com*N_r;
   // Compute CoM velocity
   Eigen::Vector3d com_velocity = J_com * state_velocity;
-
-  // Compute task-space inertia matrix (Lambda)
-  Eigen::MatrixXd Lambda_com =
-      (J_com * Mass_matrix.inverse() * J_com.transpose()).inverse();
-
   // Compute the bias acceleration (Coriolis and centrifugal effects)
-  Eigen::Vector3d com_bias_accel =
-      plant_.CalcBiasCenterOfMassTranslationalAcceleration(
+  const drake::multibody::SpatialAcceleration<double> com_spacial_bias =
+      plant_.CalcBiasSpatialAcceleration(
           context_,
           drake::multibody::JacobianWrtVariable::kV,  // ✅ Use kV
+          plant_.world_frame(),  // Measured frame
+          com_position,          // Point of interest (CoM position)
           plant_.world_frame(),  // Expressed in world frame
           plant_.world_frame()   // Measured relative to world
       );
+const auto com_bias_trans = com_spacial_bias.translational();
+const auto com_bias_rot = com_spacial_bias.rotational();
   // PD Controller for CoM
-  Eigen::Vector3d Kp_com(200.0, 200.0, 100.0);
-  Eigen::Vector3d Kd_com(50.0, 50.0, 10.0);
+  Eigen::Vector3d Kp_com(80.0, 80.0, 80.0);
+  Eigen::Vector3d Kd_com(2.7, 2.7, 4.7);
   Eigen::Vector3d com_accel_desired =
       Kp_com.cwiseProduct(com_cmd - com_position) +
       Kd_com.cwiseProduct(-com_velocity);
 
+  MatrixX<double> J_com_r_pinv = ComputeJacobianPseudoInverse(J_com*U*N_r);
+
+  // Compute the desired acceleration for the CoM
+  Eigen::Vector3d com_accel =
+      J_com_r_pinv * (com_accel_desired - com_bias_trans);
   // Compute raw torque command
-  Eigen::VectorXd u_com_raw =
-      J_com.transpose() * Lambda_com * (com_accel_desired+com_bias_accel);
-
-  // Project torques into null space
-  Eigen::VectorXd u_com = N_c * u_com_raw;
-
+  Eigen::VectorXd u_com = Mass_matrix * com_accel + N_r *(C + tau_g - contact_estimate);
+  Eigen::MatrixXd N_com_r = ComputeNullSpaceProjectionQR(J_com_r);
   // Final torque command
-  return u_stiffness.tail(num_v) + u_damping - N_c * tau_g + u_com;
+  // return tau_r + u_stiffness.tail(num_v) + u_damping +
+  //        N_r * (u_com + contact_estimate);
   // return Eigen::VectorXd::Zero(num_v);
+  //   return tau_r + N_r*(u_com) + N_r*N_com_r * (u_stiffness.tail(num_v) +
+  //   u_damping);
+  return   u_com +  N_r*N_com_r*(u_stiffness.tail(num_v) + u_damping - contact_estimate);
 }
 
 }  // namespace unitree_g1
