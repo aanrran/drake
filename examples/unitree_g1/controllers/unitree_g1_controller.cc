@@ -33,8 +33,8 @@ UnitreeG1Controller<T>::UnitreeG1Controller(const MultibodyPlant<T>& plant)
       -3.0,               // left_hip_pitch_joint
       0.0,               // left_hip_roll_joint
       0.0,               // left_hip_yaw_joint
-      3.75,               // left_knee_joint
-      -1.25,               // left_ankle_pitch_joint
+      1.5,               // left_knee_joint
+      -0.75,               // left_ankle_pitch_joint
       0.0,               // left_ankle_roll_joint
       -2.0,               // right_hip_pitch_joint
       0.0,               // right_hip_roll_joint
