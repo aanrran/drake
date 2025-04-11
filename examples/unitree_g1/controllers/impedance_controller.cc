@@ -213,7 +213,7 @@ Eigen::VectorXd ImpedanceController::CalcTorque(
   Eigen::Vector3d com_cmd = 0.5 * (X_WR.translation() + X_WL.translation());
 
   // set 0.5 meter in the z-direction
-  com_cmd.z() += 0.65;
+  com_cmd.z() += 0.7;
 
   // Get the current CoM position
   drake::Vector3<double> com_position =
@@ -242,8 +242,8 @@ Eigen::VectorXd ImpedanceController::CalcTorque(
   const auto com_bias_trans = com_spacial_bias.translational();
   const auto com_bias_rot = com_spacial_bias.rotational();
   // PD Controller for CoM
-  Eigen::Vector3d Kp_com(18.0, 18.0, 18.0);
-  Eigen::Vector3d Kd_com(0.7, 0.7, 0.7);
+  Eigen::Vector3d Kp_com(18.0, 18.0, 28.0);
+  Eigen::Vector3d Kd_com(2.7, 2.7, 2.7);
   Eigen::Vector3d com_accel_desired =
       Kp_com.cwiseProduct(com_cmd - com_position) +
       Kd_com.cwiseProduct(-com_velocity);
@@ -251,7 +251,7 @@ Eigen::VectorXd ImpedanceController::CalcTorque(
   MatrixX<double> J_com_r_pinv = ComputeJacobianPseudoInverse(J_com * U * N_r);
 
   // Compute the desired acceleration for the CoM
-  Eigen::Vector3d com_accel =
+  Eigen::VectorXd com_accel =
       J_com_r_pinv * (com_accel_desired - com_bias_trans);
   // Compute raw torque command
   Eigen::VectorXd u_com =
@@ -266,8 +266,8 @@ Eigen::VectorXd ImpedanceController::CalcTorque(
   // Convert to RPY (in radians)
   drake::math::RollPitchYaw<double> torso_rpy(torso_rotaion_matrix);
   Eigen::Vector3d torso_rpy_angles = torso_rpy.vector();  // [roll, pitch, yaw]
-  Eigen::Vector3d torso_translation_pos =
-      torso_pose.translation();  // [x, y, z] in world frame
+//   Eigen::Vector3d torso_translation_pos =
+//       torso_pose.translation();  // [x, y, z] in world frame
   const auto& torso_spatial_vel =
       plant_.EvalBodySpatialVelocityInWorld(context_, torso);
   MatrixX<double> J_torso(3, plant_.num_velocities());
@@ -289,28 +289,28 @@ Eigen::VectorXd ImpedanceController::CalcTorque(
           plant_.world_frame()   // Measured relative to world
       );
   const auto torso_bias_rot = torso_spacial_bias.rotational();
-  const auto torso_bias_trans = torso_spacial_bias.translational();
-  // PD Controller for torso translation
-  Eigen::Vector3d Kp_torso_trans(18.0, 18.0, 18.0);
-  Eigen::Vector3d Kd_torso_trans(1.7, 1.7, 1.7);
-  Eigen::Vector3d torso_trans_accel_desired =
-      Kp_torso_trans.cwiseProduct(com_cmd - torso_translation_pos) +
-      Kd_torso_trans.cwiseProduct(-torso_spatial_vel.translational());
+//   const auto torso_bias_trans = torso_spacial_bias.translational();
+//   // PD Controller for torso translation
+//   Eigen::Vector3d Kp_torso_trans(18.0, 18.0, 18.0);
+//   Eigen::Vector3d Kd_torso_trans(1.7, 1.7, 1.7);
+//   Eigen::Vector3d torso_trans_accel_desired =
+//       Kp_torso_trans.cwiseProduct(com_cmd - torso_translation_pos) +
+//       Kd_torso_trans.cwiseProduct(-torso_spatial_vel.translational());
 
-  MatrixX<double> J_torsoTrans_r_pinv =
-      ComputeJacobianPseudoInverse(J_torso * U * N_r);
+//   MatrixX<double> J_torsoTrans_r_pinv =
+//       ComputeJacobianPseudoInverse(J_torso * U * N_r);
 
-  // Compute the desired acceleration for the CoM
-  Eigen::Vector3d torso_trans_accel =
-      J_torsoTrans_r_pinv * (torso_trans_accel_desired - torso_bias_trans);
-  // Compute raw torque command
-  Eigen::VectorXd u_torsoTrans =
-      Mass_matrix * torso_trans_accel + N_r * (C + tau_g - contact_estimate);
-  Eigen::MatrixXd N_torsoTrans_r = ComputeNullSpaceProjectionQR(J_torso * N_r);
+//   // Compute the desired acceleration for the CoM
+//   Eigen::VectoXd torso_trans_accel =
+//       J_torsoTrans_r_pinv * (torso_trans_accel_desired - torso_bias_trans);
+//   // Compute raw torque command
+//   Eigen::VectorXd u_torsoTrans =
+//       Mass_matrix * torso_trans_accel + N_r * (C + tau_g - contact_estimate);
+//   Eigen::MatrixXd N_torsoTrans_r = ComputeNullSpaceProjectionQR(J_torso * N_r);
 
   // PD Controller for torso
-  Eigen::Vector3d Kp_torso(18.0, 18.0, 18.0);
-  Eigen::Vector3d Kd_torso(0.7, 0.7, 0.7);
+  Eigen::Vector3d Kp_torso(28.0, 28.0, 28.0);
+  Eigen::Vector3d Kd_torso(2.7, 2.7, 2.7);
   Eigen::Vector3d torso_rpy_desired =
       Eigen::Vector3d::Zero();         // [roll, pitch, yaw]
   torso_rpy_desired << 0.0, 0.0, 0.0;  // [roll, pitch, yaw]
@@ -319,21 +319,20 @@ Eigen::VectorXd ImpedanceController::CalcTorque(
       Kd_torso.cwiseProduct(-torso_spatial_vel.rotational());
 
   MatrixX<double> J_torso_com_r_pinv =
-      ComputeJacobianPseudoInverse(J_torso * U * N_torsoTrans_r * N_r);
+      ComputeJacobianPseudoInverse(J_torso * U * N_com_r * N_r);
 
   // Compute the desired acceleration for the CoM
-  Eigen::Vector3d torso_accel =
+  Eigen::VectorXd torso_accel =
       J_torso_com_r_pinv * (torso_accel_desired - torso_bias_rot);
   // Compute raw torque command
-  Eigen::VectorXd u_torsoRot =
-      Mass_matrix * torso_accel +
-      N_r * N_torsoTrans_r * (C + tau_g - contact_estimate);
+  Eigen::VectorXd u_torsoRot = Mass_matrix * torso_accel +
+                               N_r * N_com_r * (C + tau_g - contact_estimate);
   Eigen::MatrixXd N_torso_com_r =
-      ComputeNullSpaceProjectionQR(J_torso * N_torsoTrans_r * N_r);
+      ComputeNullSpaceProjectionQR(J_torso * N_com_r * N_r);
 
-  return 1.0 * tau_r + u_com + u_torsoRot +
+  return 0.3 * tau_r + u_com + u_torsoRot +
          0.3 * N_torso_com_r * (u_stiffness.tail(num_v) + u_damping) +
-         0.7 * N_r * N_torsoTrans_r * N_torso_com_r *
+         0.7 * N_r * N_com_r * N_torso_com_r *
              (u_stiffness.tail(num_v) + u_damping - contact_estimate);
 }
 
