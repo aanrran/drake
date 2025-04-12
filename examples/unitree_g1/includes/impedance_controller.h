@@ -17,7 +17,8 @@ class ImpedanceController {
       const drake::systems::Context<double>& context,
       Eigen::VectorX<double> stiffness, Eigen::VectorX<double> damping_ratio);
 
-  Eigen::VectorXd CalcTorque(Eigen::VectorXd desired_position);
+  Eigen::VectorXd CalcTorque(Eigen::VectorXd desired_position,
+                             Eigen::VectorXd tau_sensor);
 
  private:
   const drake::multibody::MultibodyPlant<double>& plant_;
@@ -40,7 +41,8 @@ class ImpedanceController {
   int num_joints_;
 
   std::vector<Eigen::Vector3d> GetFootContactPoints() const;
-  MatrixX<double> ComputeNullSpaceProjection(const MatrixX<double>& J_c,  const MatrixX<double>& Mass_matrix);
+  MatrixX<double> ComputeNullSpaceProjection(
+      const MatrixX<double>& J_c, const MatrixX<double>& Mass_matrix);
   MatrixX<double> ComputeContactJacobian(
       const drake::multibody::Frame<double>& foot_frame,
       const std::vector<Eigen::Vector3d>& contact_points);

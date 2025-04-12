@@ -166,7 +166,7 @@ MatrixX<double> ImpedanceController::ComputContactBias(
 }
 
 Eigen::VectorXd ImpedanceController::CalcTorque(
-    Eigen::VectorXd desired_position) {
+    Eigen::VectorXd desired_position, Eigen::VectorXd tau_sensor) {
   // **Compute stiffness torque**
   const drake::VectorX<double> state_position = plant_.GetPositions(context_);
   Eigen::VectorXd position_error = desired_position - state_position;
@@ -177,6 +177,10 @@ Eigen::VectorXd ImpedanceController::CalcTorque(
   const int num_v = plant_.num_velocities();
   const int num_a = plant_.num_actuators();  // number of actuated DoFs
 
+  // compute the sensor torque
+  Eigen::VectorXd tau_sensor_full =
+      Eigen::VectorXd::Zero(num_v);  // Initialize to zero
+  tau_sensor_full.tail(num_a) = tau_sensor;
   // Assumes the first 6 DoFs are unactuated (floating base)
   Eigen::MatrixXd U = Eigen::MatrixXd::Zero(num_v, num_v);
   U.block(num_v - num_a, num_v - num_a, num_a, num_a) =
@@ -189,7 +193,6 @@ Eigen::VectorXd ImpedanceController::CalcTorque(
 
   // 3. Compute vdot (generalized accelerations)
   auto vdot = plant_.get_generalized_acceleration_output_port().Eval(context_);
-
   // 4. Compute dynamics terms
 
   VectorX<double> C(num_v);
@@ -206,8 +209,7 @@ Eigen::VectorXd ImpedanceController::CalcTorque(
       -(damping_gains * state_velocity.array()).matrix();
 
   // 6. Compute residual: J^T f_r
-  VectorX<double> contact_estimate =
-      Mass_matrix * vdot + C - (u_stiffness.tail(num_v) + u_damping);
+  VectorX<double> contact_estimate = Mass_matrix * vdot + C - tau_sensor_full;
 
   // Compute contact Jacobian
   std::vector<Eigen::Vector3d> contact_points = GetFootContactPoints();
@@ -480,10 +482,10 @@ Eigen::VectorXd ImpedanceController::CalcTorque(
   //   VectorX<double> u_left = Mass_matrix * accel_task_left;
 
   //   return u_stiffness.tail(num_v) + u_damping - 0.0 * contact_estimate;
-  return 0.1 * u_r + 1.0 * u_com + 0.0 * u_torsoRot + 1.0 * u_left +
-         1.0 * (N_r * N_left_r * N_com_r).transpose() *
+  return 0.0 * u_r + 1.0 * u_com + 1.0 * u_torsoRot + 0.0 * u_left +
+         1.0 * (N_r * N_left_r * N_com_r * N_torso_com_r).transpose() *
              (u_stiffness.tail(num_v) + u_damping) -
-         0.0 * contact_estimate - 1.0 * tau_g;
+         1.0 * contact_estimate;
   //   return 0.0 * u_left - 0.0 * tau_g +
   //  ComputeNullSpaceProjection(J_r, Mass_matrix).transpose() *
   //  (u_stiffness.tail(num_v) + u_damping);

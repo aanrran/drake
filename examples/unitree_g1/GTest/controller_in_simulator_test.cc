@@ -58,7 +58,7 @@ int do_main() {
 
   // ✅ 6. add gravity adjustment feature
   plant.mutable_gravity_field().set_gravity_vector(Eigen::Vector3d(
-      0, 0, -0.81));  // Default -9.81 for Earth gravity, -1.625 for moon
+      0, 0, -9.81));  // Default -9.81 for Earth gravity, -1.625 for moon
 
   // ✅ 7. Finalize Plant Before Using Actuated DOFs
   plant.Finalize();
@@ -67,7 +67,7 @@ int do_main() {
   auto controller = builder.AddSystem<UnitreeG1Controller<double>>(plant);
 
   // Connect the MultibodyPlant's state output to the controller's input.
-  builder.Connect(plant.get_state_output_port(), controller->get_input_port());
+  builder.Connect(plant.get_state_output_port(), controller->state_input());
 
   // Extract the actuation matrix from the plant (B matrix).
   Eigen::MatrixXd B_full = plant.MakeActuationMatrix();
@@ -93,6 +93,10 @@ int do_main() {
                   torque_saturation->get_input_port());
   builder.Connect(torque_saturation->get_output_port(),
                   plant.get_actuation_input_port());
+
+  builder.Connect(plant.get_net_actuation_output_port(),
+                  controller->sensor_torque_input());
+
   // Visualization Setup
   drake::visualization::AddDefaultVisualization(&builder);
   // Build the diagram to validate the system connections.

@@ -1,5 +1,6 @@
 #pragma once
 #include "examples/unitree_g1/includes/impedance_controller.h"
+
 #include "drake/multibody/plant/multibody_plant.h"
 #include "drake/systems/framework/context.h"
 #include "drake/systems/framework/leaf_system.h"
@@ -36,6 +37,16 @@ class UnitreeG1Controller : public LeafSystem<T> {
    */
   explicit UnitreeG1Controller(const MultibodyPlant<T>& plant);
 
+  drake::systems::InputPortIndex state_input_;
+  const drake::systems::InputPort<double>& state_input() const {
+    return this->get_input_port(state_input_);
+  }
+  // Declare the input port for torque sensor
+  drake::systems::InputPortIndex sensor_torque_input_;
+  const drake::systems::InputPort<double>& sensor_torque_input() const {
+    return this->get_input_port(sensor_torque_input_);
+  }
+
  private:
   Eigen::VectorXd desired_position_;
   /** Reference to the MultibodyPlant model of the robot (not owned by this
@@ -49,7 +60,7 @@ class UnitreeG1Controller : public LeafSystem<T> {
    */
   std::unique_ptr<Context<T>> plant_context_;
 
-  std::unique_ptr<ImpedanceController> my_controller_; 
+  std::unique_ptr<ImpedanceController> my_controller_;
   /**
    * @brief Computes torque output for the robot based on velocity damping.
    *

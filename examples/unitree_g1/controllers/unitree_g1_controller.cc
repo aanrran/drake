@@ -54,6 +54,15 @@ UnitreeG1Controller<T>::UnitreeG1Controller(const MultibodyPlant<T>& plant)
       0.0,    // right_shoulder_yaw_joint
       0.0,    // right_elbow_joint
       0.0;    // right_wrist_roll_joint
+
+  state_input_ = this->DeclareInputPort("robot_state",
+                                        drake::systems::kVectorValued, num_x)
+                     .get_index();
+
+  sensor_torque_input_ =
+      this->DeclareInputPort("sensor_torque", drake::systems::kVectorValued,
+                             plant_.num_actuators())
+          .get_index();
 }
 
 template <typename T>
@@ -62,14 +71,24 @@ void UnitreeG1Controller<T>::CalcTorque(const Context<T>& context,
   TimingLogger::GetInstance().StartTimer("RunController");  // timer started
   // Ensure the plant context is initialized before use
   DRAKE_DEMAND(plant_context_ != nullptr);
+
+  // Retrieve the sensor torque input from the input port
+  const auto* sensor_torque_vector =
+      this->EvalVectorInput(context, sensor_torque_input_);
+  if (sensor_torque_vector == nullptr) {
+    throw std::runtime_error("Sensor torque input not connected.");
+  }
+  const Eigen::VectorXd& tau_sensor = sensor_torque_vector->get_value();
+
   // Retrieve the state input (q, v) from the input port
-  const BasicVector<T>* input = this->EvalVectorInput(context, 0);
+  const BasicVector<T>* input = this->EvalVectorInput(context, state_input_);
   DRAKE_DEMAND(input != nullptr);
   const Eigen::VectorXd& x = input->value();  // Extract full state vector
   // Update plant's internal state representation (positions + velocities)
   plant_.SetPositionsAndVelocities(plant_context_.get(), x);
   // Compute damping torque: τ = -D * v, where D is a diagonal damping matrix
-  torque->get_mutable_value() = my_controller_->CalcTorque(desired_position_);
+  torque->get_mutable_value() =
+      my_controller_->CalcTorque(desired_position_, tau_sensor);
   TimingLogger::GetInstance().StopTimer("RunController");  // timer stopped
 }
 
