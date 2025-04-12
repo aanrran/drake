@@ -2,13 +2,13 @@
 #include "examples/unitree_g1/includes/unitree_g1_controller.h"
 #include <gflags/gflags.h>
 
+#include "drake/geometry/scene_graph.h"
 #include "drake/multibody/parsing/parser.h"
 #include "drake/multibody/plant/multibody_plant.h"
 #include "drake/systems/analysis/simulator.h"
 #include "drake/systems/framework/context.h"
 #include "drake/systems/framework/diagram_builder.h"
 #include "drake/systems/primitives/matrix_gain.h"
-#include "drake/geometry/scene_graph.h"
 #include "drake/visualization/visualization_config_functions.h"
 // Define simulation time as a command-line argument
 DEFINE_double(simulation_time, 5.0, "Simulation duration in seconds");
@@ -42,29 +42,29 @@ int do_main() {
   AddActuatorsToPlant(plant);
 
   // ✅ 4. Set Initial Robot Pose
-  const double initial_z_offset = 0.74;
+  const double initial_z_offset = 0.73;
   plant.SetDefaultFreeBodyPose(
       plant.GetBodyByName("pelvis", model_instance),
       RigidTransformd(Eigen::Translation3d(0, 0, initial_z_offset)));
 
-  // // ✅ Weld pelvis at an offset of (0, 0, 0.8) in world frame
-  //   plant.WeldFrames(
-  //       plant.world_frame(), plant.GetFrameByName("pelvis"),
-  //       RigidTransformd(Eigen::Translation3d(0, 0, initial_z_offset)));
+  // ✅ Weld pelvis at an offset of (0, 0, 0.8) in world frame
+    plant.WeldFrames(
+        plant.world_frame(), plant.GetFrameByName("pelvis"),
+        RigidTransformd(Eigen::Translation3d(0, 0, initial_z_offset)));
 
   // ✅ 5. Add Ground Plane for Simulation
   AddGroundPlaneToPlant(plant);
 
   // ✅ 6. add gravity adjustment feature
   plant.mutable_gravity_field().set_gravity_vector(Eigen::Vector3d(
-      0, 0, -2.81));  // Default -9.81 for Earth gravity, -1.625 for moon
+      0, 0, -0.81));  // Default -9.81 for Earth gravity, -1.625 for moon
 
   // ✅ 7. Finalize Plant Before Using Actuated DOFs
   plant.Finalize();
 
   // Instantiate the UnitreeG1Controller and add it to the diagram.
   auto controller = builder.AddSystem<UnitreeG1Controller<double>>(plant);
-  
+
   // Connect the MultibodyPlant's state output to the controller's input.
   builder.Connect(plant.get_state_output_port(), controller->get_input_port());
 
