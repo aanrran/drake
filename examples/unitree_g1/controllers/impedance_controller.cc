@@ -209,7 +209,8 @@ Eigen::VectorXd ImpedanceController::CalcTorque(
       -(damping_gains * state_velocity.array()).matrix();
 
   // 6. Compute residual: J^T f_r
-  VectorX<double> contact_estimate = Mass_matrix * vdot + C - tau_sensor_full;
+  VectorX<double> contact_estimate =
+      Mass_matrix * vdot + C - tau_g - tau_sensor_full;
 
   // Compute contact Jacobian
   std::vector<Eigen::Vector3d> contact_points = GetFootContactPoints();
@@ -245,8 +246,8 @@ Eigen::VectorXd ImpedanceController::CalcTorque(
   Eigen::Vector3d left_translation_pos =
       plant_.EvalBodyPoseInWorld(context_, left_foot)
           .translation();  // [x, y, z] in world frame
-  std::cout << "left_translation_pos: " << left_translation_pos.transpose()
-            << std::endl;
+  //   std::cout << "left_translation_pos: " << left_translation_pos.transpose()
+  //             << std::endl;
   MatrixX<double> J_left_feet(3, num_v);
   // Compute the Jacobian for the left foot
   plant_.CalcJacobianTranslationalVelocity(
@@ -481,15 +482,16 @@ Eigen::VectorXd ImpedanceController::CalcTorque(
   //   // (4) Compute task torque
   //   VectorX<double> u_left = Mass_matrix * accel_task_left;
 
-  //   return u_stiffness.tail(num_v) + u_damping - 0.0 * contact_estimate;
-  return 0.0 * u_r + 1.0 * u_com + 1.0 * u_torsoRot + 0.0 * u_left +
-         1.0 * (N_r * N_left_r * N_com_r * N_torso_com_r).transpose() *
-             (u_stiffness.tail(num_v) + u_damping) -
-         1.0 * contact_estimate;
-  //   return 0.0 * u_left - 0.0 * tau_g +
+  return u_stiffness.tail(num_v) + u_damping - 1.0 * contact_estimate - tau_g;
+
+  //   return 0.0 * u_r + 0.0 * u_com + 0.0 * u_torsoRot + 0.0 * u_left +
+  //          1.0 * (N_r * N_left_r * N_com_r * N_torso_com_r).transpose() *
+  //              (u_stiffness.tail(num_v) + u_damping) -
+  //          1.0 * contact_estimate;
+  //   return 0.0 * u_left - 1.0 * tau_g - 1.0 * contact_estimate +
   //  ComputeNullSpaceProjection(J_r, Mass_matrix).transpose() *
   //  (u_stiffness.tail(num_v) + u_damping);
-  //  (N_r * N_left_r).transpose() * (u_stiffness.tail(num_v) + u_damping);
+  //   (N_r * N_left_r).transpose() * (u_stiffness.tail(num_v) + u_damping);
 }
 
 }  // namespace unitree_g1
