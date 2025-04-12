@@ -30,32 +30,59 @@ std::vector<Eigen::Vector3d> ImpedanceController::GetFootContactPoints() const {
           Eigen::Vector3d(0.050, 0.03, -0.001)};
 }
 
-// Efficient computation of the null-space projection matrix using QR
+// Robust dynamically consistent null-space projection with
+// CompleteOrthogonalDecomposition fallback
 MatrixX<double> ImpedanceController::ComputeNullSpaceProjection(
-    const MatrixX<double>& J_c,  const MatrixX<double>& Mass_matrix) {
+    const MatrixX<double>& J_c, const MatrixX<double>& Mass_matrix) {
   int n = J_c.cols();  // Number of generalized velocities (DOFs)
   int m = J_c.rows();  // Number of constraints
-  // Default Mass_matrix to identity if not provided
-  MatrixX<double> M = Mass_matrix;
-  if (M.size() == 0) {
-    M = MatrixX<double>::Identity(n, n);
+
+  int num_a = plant_.num_actuators();  // number of actuated DoFs
+
+  // Actuation selection matrix
+  Eigen::MatrixXd U = Eigen::MatrixXd::Zero(n, num_a);
+  U.block(n - num_a, 0, num_a, num_a) = Eigen::MatrixXd::Identity(num_a, num_a);
+
+  // Projected Jacobian and actuated mass submatrix
+  Eigen::MatrixXd J_c_U = J_c * U;
+  Eigen::MatrixXd M = Mass_matrix.block(n - num_a, n - num_a, num_a, num_a);
+
+  // Regularize M to avoid numerical issues during inversion
+  M.diagonal().array() += 1e-6;
+
+  Eigen::MatrixXd I = Eigen::MatrixXd::Identity(num_a, num_a);
+
+  // Compute the operational space inertia matrix: Lambda = J_c_U * M^-1 *
+  // J_c_U^T
+  Eigen::MatrixXd M_inv;
+  Eigen::LLT<Eigen::MatrixXd> llt(M);
+  if (llt.info() != Eigen::Success) {
+    throw std::runtime_error(
+        "Mass matrix inversion failed: M is not positive definite.");
   }
+  M_inv = llt.solve(Eigen::MatrixXd::Identity(num_a, num_a));
 
-  MatrixX<double> I = MatrixX<double>::Identity(n, n);
+  Eigen::MatrixXd Lambda = J_c_U * M_inv * J_c_U.transpose();
 
-  // Compute the operational space inertia matrix: Lambda = (J * M^{-1} * J^T)^{-1}
-  MatrixX<double> Lambda_inv = J_c * M.inverse() * J_c.transpose();
+  // Regularize Lambda to avoid singularities
+  Lambda.diagonal().array() += 1e-6;
 
-  // Regularize Lambda_inv to avoid singularities
-  Lambda_inv.diagonal().array() += 1e-6;
+  // Compute pseudo-inverse of Lambda using CompleteOrthogonalDecomposition
+  Eigen::CompleteOrthogonalDecomposition<Eigen::MatrixXd> cod(Lambda);
+  Eigen::MatrixXd Lambda_pinv = cod.pseudoInverse();
 
-  // Compute the dynamically consistent generalized inverse of J_c
-  MatrixX<double> J_dyn_pinv = M.inverse() * J_c.transpose() * Lambda_inv.llt().solve(MatrixX<double>::Identity(m, m));
+  // Dynamically consistent pseudoinverse
+  Eigen::MatrixXd J_dyn_pinv = M_inv * J_c_U.transpose() * Lambda_pinv;
 
-  // Dynamically consistent null-space projection matrix
-  MatrixX<double> N_c = I - J_dyn_pinv * J_c;
+  // Compute null-space projection in actuator subspace
+  Eigen::MatrixXd N_c = I - J_dyn_pinv * J_c_U;
 
-  return N_c;
+  // Embed into full-dimension matrix (n x n) with top-left block identity and
+  // bottom-right N_c
+  Eigen::MatrixXd N_c_return = Eigen::MatrixXd::Identity(n, n);
+  N_c_return.block(n - num_a, n - num_a, num_a, num_a) = N_c;
+
+  return N_c_return;
 }
 
 MatrixX<double> ImpedanceController::ComputeJacobianPseudoInverse(
@@ -196,10 +223,11 @@ Eigen::VectorXd ImpedanceController::CalcTorque(
   //     J_r.topRows(J_left_feet.rows()) = J_right_feet;
   //     J_r.bottomRows(J_left_feet.rows()) = J_left_feet;
 
-  MatrixX<double> N_r = ComputeNullSpaceProjection(J_r, Mass_matrix);
+  MatrixX<double> N_r = ComputeNullSpaceProjection(J_r * U, Mass_matrix);
 
   // (1) Compute J_r and pseudoinverse
   MatrixX<double> J_r_pinv = ComputeJacobianPseudoInverse(J_r * U);
+
   // (2) Compute J̇·v
   VectorX<double> JdotV_r =
       ComputContactBias(right_foot.body_frame(), contact_points);
@@ -228,7 +256,8 @@ Eigen::VectorXd ImpedanceController::CalcTorque(
       plant_.world_frame(),                       // measured in world
       &J_left_feet);
 
-  Eigen::MatrixXd N_left_r = ComputeNullSpaceProjection(J_left_feet * N_r, Mass_matrix);
+  Eigen::MatrixXd N_left_r =
+      ComputeNullSpaceProjection(J_left_feet * U * N_r, Mass_matrix);
 
   // (1) Compute J_r and pseudoinverse
   MatrixX<double> J_left_r_pinv =
@@ -249,7 +278,7 @@ Eigen::VectorXd ImpedanceController::CalcTorque(
       (J_left_feet * Mass_matrix.inverse() * J_left_feet.transpose());
   // PD Controller for torso
   Eigen::Vector3d Kp_left(30.0, 30.0, 30.0);
-  Eigen::Vector3d Kd_left(1.7, 1.7, 1.7);
+  Eigen::Vector3d Kd_left(3.7, 3.7, 3.7);
   Eigen::Vector3d left_trans_desired(-0.0, 0.1, 0.3);  // [x, y, z]
   Eigen::Vector3d left_accel_desired =
       Lambda_left_inv *
@@ -270,7 +299,7 @@ Eigen::VectorXd ImpedanceController::CalcTorque(
   Eigen::Vector3d com_cmd = X_WR.translation() + Eigen::Vector3d(0.0, 0.0, 0.0);
 
   // set 0.5 meter in the z-direction
-  com_cmd.z() += 0.7;
+  com_cmd.z() += 0.5;
 
   // Get the current CoM position
   drake::Vector3<double> com_position =
@@ -283,8 +312,8 @@ Eigen::VectorXd ImpedanceController::CalcTorque(
   plant_.CalcJacobianCenterOfMassTranslationalVelocity(
       context_, drake::multibody::JacobianWrtVariable::kV, plant_.world_frame(),
       plant_.world_frame(), &J_com);
-  Eigen::MatrixXd J_com_r = J_com * N_left_r * N_r;
-  Eigen::MatrixXd N_com_r = ComputeNullSpaceProjection(J_com_r, Mass_matrix);
+  Eigen::MatrixXd N_com_r =
+      ComputeNullSpaceProjection(J_com * U * N_left_r * N_r, Mass_matrix);
   // Compute CoM velocity
   Eigen::Vector3d com_velocity = J_com * state_velocity;
   // Compute the bias acceleration (Coriolis and centrifugal effects)
@@ -334,8 +363,7 @@ Eigen::VectorXd ImpedanceController::CalcTorque(
   double kappa = 0.9 * kappa_max_com;  // safety margin of 10%
   Eigen::MatrixXd KD_com = 0.9 * Mass_matrix;
   // Compute raw torque command
-  Eigen::VectorXd u_com = -tau_g +
-                          2 * kappa * N_left_r * N_r * U * J_com.transpose() *
+  Eigen::VectorXd u_com = 2 * kappa * N_left_r * N_r * U * J_com.transpose() *
                               (com_cmd - com_position) -
                           KD_com * J_com_r_pinv * J_com * (state_velocity);
   // Mass_matrix * com_accel;
@@ -362,8 +390,8 @@ Eigen::VectorXd ImpedanceController::CalcTorque(
       plant_.world_frame(),                       // measured in world
       &J_torso);
 
-  Eigen::MatrixXd N_torso_com_r =
-      ComputeNullSpaceProjection(J_torso * N_com_r * N_left_r * N_r, Mass_matrix);
+  Eigen::MatrixXd N_torso_com_r = ComputeNullSpaceProjection(
+      J_torso * U * N_com_r * N_left_r * N_r, Mass_matrix);
   // Compute the bias acceleration (Coriolis and centrifugal effects)
   const drake::multibody::SpatialAcceleration<double> torso_spacial_bias =
       plant_.CalcBiasSpatialAcceleration(
@@ -376,16 +404,18 @@ Eigen::VectorXd ImpedanceController::CalcTorque(
       );
   const auto torso_bias_rot = torso_spacial_bias.rotational();
   //   const auto torso_bias_trans = torso_spacial_bias.translational();
-
+  Eigen::MatrixXd Lambda_torso_inv =
+      (J_torso * Mass_matrix.inverse() * J_torso.transpose());
   // PD Controller for torso
   Eigen::Vector3d Kp_torso(28.0, 28.0, 28.0);
-  Eigen::Vector3d Kd_torso(2.7, 2.7, 2.7);
+  Eigen::Vector3d Kd_torso(3.7, 3.7, 3.7);
   Eigen::Vector3d torso_rpy_desired =
       Eigen::Vector3d::Zero();         // [roll, pitch, yaw]
   torso_rpy_desired << 0.0, 0.0, 0.0;  // [roll, pitch, yaw]
   Eigen::Vector3d torso_accel_desired =
-      Kp_torso.cwiseProduct(torso_rpy_desired - torso_rpy_angles) +
-      Kd_torso.cwiseProduct(-torso_spatial_vel.rotational());
+      Lambda_torso_inv *
+          Kp_torso.cwiseProduct(torso_rpy_desired - torso_rpy_angles) +
+      Lambda_torso_inv * Kd_torso.cwiseProduct(-torso_spatial_vel.rotational());
 
   MatrixX<double> J_torso_com_r_pinv =
       ComputeJacobianPseudoInverse(J_torso * U * N_com_r * N_left_r * N_r);
@@ -413,7 +443,7 @@ Eigen::VectorXd ImpedanceController::CalcTorque(
   //       &J_left_feet);
 
   //   Eigen::MatrixXd N_left_torso_com_r =
-  //       ComputeNullSpaceProjection(J_left_feet * N_torso_com_r * N_com_r *
+  //       ComputeNullSpaceProjection(J_left_feet *U* N_torso_com_r * N_com_r *
   //       N_r);
 
   //   // (1) Compute J_r and pseudoinverse
@@ -449,12 +479,15 @@ Eigen::VectorXd ImpedanceController::CalcTorque(
   //   // (4) Compute task torque
   //   VectorX<double> u_left = Mass_matrix * accel_task_left;
 
-  //   return u_stiffness.tail(num_v) + u_damping - contact_estimate;
-  //   return 0.0 * u_r + 0.0 * u_com + 0.0 * u_torsoRot + 1.0 * u_left +
-  //          0.0 * N_r * N_left_r * N_com_r * N_torso_com_r *
-  //              (u_stiffness.tail(num_v) + u_damping) -
-  //          0.0 * contact_estimate;
-  return u_left - tau_g +  ComputeNullSpaceProjection(J_left_feet, Mass_matrix).transpose()*(u_stiffness.tail(num_v) + u_damping);
+  //   return u_stiffness.tail(num_v) + u_damping - 0.0 * contact_estimate;
+  return 0.1 * u_r + 1.0 * u_com + 0.0 * u_torsoRot + 1.0 * u_left +
+         1.0 * (N_r * N_left_r * N_com_r).transpose() *
+             (u_stiffness.tail(num_v) + u_damping) -
+         0.0 * contact_estimate - 1.0 * tau_g;
+  //   return 0.0 * u_left - 0.0 * tau_g +
+  //  ComputeNullSpaceProjection(J_r, Mass_matrix).transpose() *
+  //  (u_stiffness.tail(num_v) + u_damping);
+  //  (N_r * N_left_r).transpose() * (u_stiffness.tail(num_v) + u_damping);
 }
 
 }  // namespace unitree_g1

@@ -9,6 +9,7 @@
 #include "drake/systems/framework/context.h"
 #include "drake/systems/framework/diagram_builder.h"
 #include "drake/systems/primitives/matrix_gain.h"
+#include "drake/systems/primitives/saturation.h"
 #include "drake/visualization/visualization_config_functions.h"
 // Define simulation time as a command-line argument
 DEFINE_double(simulation_time, 5.0, "Simulation duration in seconds");
@@ -42,15 +43,15 @@ int do_main() {
   AddActuatorsToPlant(plant);
 
   // ✅ 4. Set Initial Robot Pose
-  const double initial_z_offset = 0.73;
+  const double initial_z_offset = 0.75;
   plant.SetDefaultFreeBodyPose(
       plant.GetBodyByName("pelvis", model_instance),
       RigidTransformd(Eigen::Translation3d(0, 0, initial_z_offset)));
 
   // ✅ Weld pelvis at an offset of (0, 0, 0.8) in world frame
-    plant.WeldFrames(
-        plant.world_frame(), plant.GetFrameByName("pelvis"),
-        RigidTransformd(Eigen::Translation3d(0, 0, initial_z_offset)));
+  // plant.WeldFrames(
+  //     plant.world_frame(), plant.GetFrameByName("pelvis"),
+  //     RigidTransformd(Eigen::Translation3d(0, 0, initial_z_offset)));
 
   // ✅ 5. Add Ground Plane for Simulation
   AddGroundPlaneToPlant(plant);
@@ -79,7 +80,19 @@ int do_main() {
   builder.Connect(controller->get_output_port(), B_gain->get_input_port());
 
   // Connect the actuation gain output to the MultibodyPlant's actuation input.
-  builder.Connect(B_gain->get_output_port(), plant.get_actuation_input_port());
+  // builder.Connect(B_gain->get_output_port(),
+  // plant.get_actuation_input_port());
+
+  //   // ✅ 14. Apply Torque Limits
+  auto torque_saturation =
+      builder.AddSystem<drake::systems::Saturation<double>>(
+          Eigen::VectorXd::Constant(plant.num_actuators(), -30.0),
+          Eigen::VectorXd::Constant(plant.num_actuators(), 30.0));
+
+  builder.Connect(B_gain->get_output_port(),
+                  torque_saturation->get_input_port());
+  builder.Connect(torque_saturation->get_output_port(),
+                  plant.get_actuation_input_port());
   // Visualization Setup
   drake::visualization::AddDefaultVisualization(&builder);
   // Build the diagram to validate the system connections.

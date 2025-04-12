@@ -248,6 +248,7 @@ cc_binary(
         "//systems/analysis:simulator",
         "//geometry:scene_graph",
         "//visualization:visualization_config_functions",
+        "//systems/primitives:saturation",
         "@eigen",
         "@gflags",
     ],
