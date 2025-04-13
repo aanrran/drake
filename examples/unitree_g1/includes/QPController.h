@@ -1,47 +1,53 @@
 // QPController.h - Header File
 #pragma once
 
-#include <drake/solvers/mathematical_program.h>
-#include <drake/solvers/osqp_solver.h>
-#include <drake/multibody/plant/multibody_plant.h>
-#include <drake/systems/framework/context.h>
-#include "drake/multibody/parsing/parser.h"
-#include <Eigen/Dense>
 #include <memory>
 
+#include <Eigen/Dense>
+#include <drake/multibody/plant/multibody_plant.h>
+#include <drake/systems/framework/context.h>
+
+namespace drake {
+namespace examples {
+namespace unitree_g1 {
 class QPController {
-public:
-    explicit QPController(const drake::multibody::MultibodyPlant<double>& plant, const drake::systems::Context<double>& context);
-    Eigen::VectorXd SolveQP(
-        const Eigen::VectorXd& q, 
-        const Eigen::VectorXd& q_dot);
+ public:
+  explicit QPController(const drake::multibody::MultibodyPlant<double>& plant,
+                        const drake::systems::Context<double>& context,
+                        Eigen::VectorX<double> stiffness,
+                        Eigen::VectorX<double> damping_ratio);
 
-private:
-    const drake::multibody::MultibodyPlant<double>& plant_;
-    const drake::systems::Context<double>& context_;
+  Eigen::VectorXd CalcTorque(Eigen::VectorXd desired_position,
+                             Eigen::VectorXd tau_sensor);
 
-    // Time step for Euler integration
-    double dt_;
-    // Angular momentum constraint matrices
-    Eigen::MatrixXd A_am_;
-    Eigen::VectorXd hdot_des_;
-    // Contact information
-    std::vector<drake::multibody::BodyIndex> contact_bodies_;
-    std::vector<Eigen::Vector3d> contact_points_;
+ private:
+  const drake::multibody::MultibodyPlant<double>& plant_;
+  const drake::systems::Context<double>& context_;
 
+  const Eigen::VectorX<double> stiffness_, damping_ratio_;
 
-    std::unique_ptr<drake::solvers::OsqpSolver> solver_;
+  // Contact information
+  std::vector<drake::multibody::BodyIndex> contact_bodies_;
+  std::vector<Eigen::Vector3d> contact_points_;
 
-    // System matrices and vectors
-    // Eigen::MatrixXd W_tau_, W_f_, S_, J_task_, J_dot_task_, A_friction_;
-    // Eigen::VectorXd tau_ref_, f_ref_, tau_min_, tau_max_, b_friction_;
+  // System matrices and vectors
+  // Eigen::MatrixXd W_tau_, W_f_, S_, J_task_, J_dot_task_, A_friction_;
+  // Eigen::VectorXd tau_ref_, f_ref_, tau_min_, tau_max_, b_friction_;
 
-    int num_joints_;
-    std::vector<Eigen::Vector3d> contact_points;
-    drake::solvers::MathematicalProgram prog_;
-    drake::solvers::VectorXDecisionVariable tau_, ddq_, f_c_;
+  int num_joints_;
 
-    std::vector<Eigen::Vector3d> GetFootContactPoints() const;
-    void AddCoMCost();
-
+  std::vector<Eigen::Vector3d> GetFootContactPoints() const;
+  MatrixX<double> ComputeNullSpaceProjection(
+      const MatrixX<double>& J_c, const MatrixX<double>& Mass_matrix);
+  MatrixX<double> ComputeContactJacobian(
+      const drake::multibody::Frame<double>& foot_frame,
+      const std::vector<Eigen::Vector3d>& contact_points);
+  MatrixX<double> ComputContactBias(
+      const drake::multibody::Frame<double>& foot_frame,
+      const std::vector<Eigen::Vector3d>& contact_points);
+  MatrixX<double> ComputeJacobianPseudoInverse(const MatrixX<double>& J,
+                                               double damping_eps = 1e-6);
 };
+}  // namespace unitree_g1
+}  // namespace examples
+}  // namespace drake

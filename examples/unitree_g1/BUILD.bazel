@@ -8,15 +8,18 @@ cc_library(
     srcs = ["controllers/QPController.cc"],
     hdrs = ["includes/QPController.h"],
     deps = [
-        "//geometry:scene_graph",
         "//solvers:mathematical_program",
         "//solvers:solve",
         "//solvers:osqp_solver",
+        "//examples/unitree_g1:simple_PID", 
+        "//examples/unitree_g1:timing_logger", 
         "//multibody/plant",
-        "//multibody/parsing:parser",
+        "//multibody/plant:multibody_plant_config_functions",
+        "@drake//math",
+        "@drake//multibody/tree",
+        "@drake//common",
         "@eigen",
     ],
-    visibility = ["//visibility:public"],
 )
 
 cc_library(
@@ -40,6 +43,7 @@ cc_library(
     srcs = ["controllers/unitree_g1_controller.cc"],
     hdrs = ["includes/unitree_g1_controller.h"],
     deps = [
+        "//examples/unitree_g1:qp_controller", 
         "//examples/unitree_g1:impedance_controller", 
         "//examples/unitree_g1:timing_logger", 
         "//systems/framework:diagram",
