@@ -180,10 +180,7 @@ Eigen::VectorXd ImpedanceController::CalcTorque(
   Eigen::VectorXd tau_sensor_full =
       Eigen::VectorXd::Zero(num_v);  // Initialize to zero
   tau_sensor_full.tail(num_a) = tau_sensor;
-  // Assumes the first 6 DoFs are unactuated (floating base)
-  Eigen::MatrixXd U = Eigen::MatrixXd::Zero(num_v, num_v);
-  U.block(num_v - num_a, num_v - num_a, num_a, num_a) =
-      Eigen::MatrixXd::Identity(num_a, num_a);
+
   // Compute mass matrix H
   Eigen::MatrixXd Mass_matrix(num_v, num_v);
   plant_.CalcMassMatrixViaInverseDynamics(context_, &Mass_matrix);
@@ -213,57 +210,29 @@ Eigen::VectorXd ImpedanceController::CalcTorque(
 
   // Compute contact Jacobian
   std::vector<Eigen::Vector3d> contact_points = GetFootContactPoints();
-  // right foot constraint control
   const auto& right_foot = plant_.GetBodyByName("right_ankle_roll_link");
+  const auto& left_foot = plant_.GetBodyByName("left_ankle_roll_link");
 
   MatrixX<double> J_right_foot =
       ComputeContactJacobian(right_foot.body_frame(), contact_points);
   // compute the null space projection jacobian
-  MatrixX<double> J_right_null = J_right_foot * U;
-  MatrixX<double> N_right =
-      ComputeNullSpaceProjection(J_right_null, Mass_matrix);
-
-  // (1) Compute J_r and pseudoinverse
-  MatrixX<double> J_right_pinv = ComputeJacobianPseudoInverse(J_right_null);
-
-  // (2) Compute J̇·v
-  VectorX<double> JdotV_right =
-      ComputContactBias(right_foot.body_frame(), contact_points);
-  // (3) Compute desired acceleration
-  double alpha_right = 0.7;  // damping factor
-  VectorX<double> accel_task_right =
-      vdot - J_right_pinv *
-                 (JdotV_right + alpha_right * J_right_foot * state_velocity +
-                  J_right_foot * vdot);
-
-  // (4) Compute task torque
-  VectorX<double> u_right = Mass_matrix * accel_task_right;
+  MatrixX<double> J_left_foot =
+      ComputeContactJacobian(right_foot.body_frame(), contact_points);
+  // stack the jacobian
+  MatrixX<double> J_r =
+      Eigen::MatrixXd::Zero(J_right_foot.rows() + J_left_foot.rows(), num_v);
+  J_r.topRows(J_right_foot.rows()) = J_right_foot;
+  J_r.bottomRows(J_left_foot.rows()) = J_left_foot;
+  // Compute the selection matrix S to unselect the floating base
+  Eigen::MatrixXd S_r = Eigen::MatrixXd::Zero(num_v, num_v);
+  S_r.bottomRightCorner(num_a, num_a) = Eigen::MatrixXd::Identity(num_a, num_a);
+  // Compute the  null space projection jacobian
+  MatrixX<double> J_r_null = J_r * S_r;
+  // comput the null space matrix
+  MatrixX<double> N_r = ComputeNullSpaceProjection(J_r_null, Mass_matrix);
 
   // Compute the midpoint between the left and right foot positions
   const auto& X_WR = plant_.EvalBodyPoseInWorld(context_, right_foot);
-
-  // left foot constraint control
-  const auto& left_foot = plant_.GetBodyByName("left_ankle_roll_link");
-  MatrixX<double> J_left_foot =
-      ComputeContactJacobian(left_foot.body_frame(), contact_points);
-  // compute the null space projection jacobian
-  MatrixX<double> J_left_null = J_left_foot * U * N_right;
-  MatrixX<double> N_left_r =
-      ComputeNullSpaceProjection(J_left_null, Mass_matrix);
-  // (1) Compute J_r and pseudoinverse
-  MatrixX<double> J_left_right_pinv = ComputeJacobianPseudoInverse(J_left_null);
-  // (2) Compute J̇·v
-  VectorX<double> JdotV_left =
-      ComputContactBias(left_foot.body_frame(), contact_points);
-  // (3) Compute desired acceleration
-  double alpha_left = 0.7;  // damping factor
-  VectorX<double> accel_task_left =
-      vdot - J_left_right_pinv *
-                 (JdotV_left + alpha_left * J_left_foot * state_velocity +
-                  J_left_foot * vdot);
-  // (4) Compute task torque
-  VectorX<double> u_left = Mass_matrix * accel_task_left;
-  // Compute the midpoint between the left and right foot positions
   const auto& X_WL = plant_.EvalBodyPoseInWorld(context_, left_foot);
 
   Eigen::Vector3d com_cmd = 0.5 * (X_WR.translation() + X_WL.translation()) +
@@ -283,8 +252,14 @@ Eigen::VectorXd ImpedanceController::CalcTorque(
   plant_.CalcJacobianCenterOfMassTranslationalVelocity(
       context_, drake::multibody::JacobianWrtVariable::kV, plant_.world_frame(),
       plant_.world_frame(), &J_com);
+  // compute the selection matrix S to unselect the floating base and upper body
+  Eigen::MatrixXd S_com = Eigen::MatrixXd::Identity(num_v, num_v);
+  // Opt out the floating joint (first 6 axes) and the last few joints from
+  // joint 14 to joint 31
+  S_com.bottomRightCorner(12, 12) = Eigen::MatrixXd::Zero(12, 12);
+
   // Compute the null space projection jacobian
-  MatrixX<double> J_com_null = J_com * U * N_right * N_left_r;
+  MatrixX<double> J_com_null = J_com * S_com * N_r;
   Eigen::MatrixXd N_com_r = ComputeNullSpaceProjection(J_com_null, Mass_matrix);
   // Compute CoM velocity
   Eigen::Vector3d com_velocity = J_com * state_velocity;
@@ -334,9 +309,9 @@ Eigen::VectorXd ImpedanceController::CalcTorque(
   Eigen::MatrixXd KD_com = 0.9 * Mass_matrix;
   // Compute raw torque command
   Eigen::VectorXd u_com =
-      //   2 * kappa * J_com_null.transpose() * (com_cmd - com_position) -
-      //   KD_com * J_com_r_pinv * J_com * (state_velocity);
-      Mass_matrix * com_accel;
+      2 * kappa * J_com_null.transpose() * (com_cmd - com_position) -
+      KD_com * J_com_r_pinv * J_com * (state_velocity);
+  //   Mass_matrix * com_accel;
 
   const auto& torso = plant_.GetBodyByName("torso_link");
   const math::RigidTransform<double> torso_pose =
@@ -359,8 +334,11 @@ Eigen::VectorXd ImpedanceController::CalcTorque(
       plant_.world_frame(),                       // expressed in world
       plant_.world_frame(),                       // measured in world
       &J_torso);
+  // Compute the selection matrix S to select the waist_yaw_joint_actuator only
+  Eigen::MatrixXd S_torso = Eigen::MatrixXd::Zero(num_v, num_v);
+  S_torso(num_v - num_a + 14 - 1, num_v - num_a + 14 - 1) = 1.0;
   // Compute the null space projection jacobian
-  MatrixX<double> J_torso_null = J_torso * U * N_right * N_left_r * N_com_r;
+  MatrixX<double> J_torso_null = J_torso * S_torso * N_r * N_com_r;
   Eigen::MatrixXd N_torso_r =
       ComputeNullSpaceProjection(J_torso_null, Mass_matrix);
   // Compute the bias acceleration (Coriolis and centrifugal effects)
@@ -456,11 +434,11 @@ Eigen::VectorXd ImpedanceController::CalcTorque(
   //   // (4) Compute task torque
   //   VectorX<double> u_left = Mass_matrix * accel_task_left;
 
-  return 0.0 * u_right + 0.0 * u_left + 0.0 * u_com + 0.0 * u_torsoRot +
-         (u_stiffness.tail(num_v) + u_damping) -
-         1.0 * (N_right * N_left_r * N_com_r).transpose() *
+  return 1.0 * u_com + 0.0 * u_torsoRot +
+         //  (u_stiffness.tail(num_v) + u_damping) -
+         1.0 * (N_r * N_com_r).transpose() *
              (u_stiffness.tail(num_v) + u_damping) -
-         0.0 * tau_g - 0.0 * contact_estimate;
+         1.0 * tau_g - 0.0 * contact_estimate;
   //   return 0.0 * u_left - 1.0 * tau_g - 1.0 * contact_estimate +
   //  ComputeNullSpaceProjection(J_r, Mass_matrix).transpose() *
   //  (u_stiffness.tail(num_v) + u_damping);
