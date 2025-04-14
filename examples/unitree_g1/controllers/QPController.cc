@@ -184,7 +184,6 @@ Eigen::VectorXd QPController::CalcTorque(Eigen::VectorXd desired_position,
   // Dynamic
   const drake::VectorX<double> state_position = plant_.GetPositions(context_);
   const drake::VectorX<double> state_velocity = plant_.GetVelocities(context_);
-
   // compute the sensor torque
   const int num_v = plant_.num_velocities();
   const int num_a = plant_.num_actuators();  // number of actuated DoFs
@@ -263,6 +262,22 @@ Eigen::VectorXd QPController::CalcTorque(Eigen::VectorXd desired_position,
 
   auto [J_trans_torso, J_torso] = GetBodyJacobian(torso.body_frame());
   auto [Jd_qd_trans_torso, Jd_qd_torso] = GetBodyBias(torso.body_frame());
+
+  // **Compute stiffness torque**
+  Eigen::VectorXd position_error = desired_position - state_position;
+  Eigen::VectorXd u_stiffness =
+      (stiffness_.array() * position_error.array()).matrix();
+
+  // Compute damping torque
+  // Compute critical damping gains and scale by damping ratio. Use Eigen
+  // arrays (rather than matrices) for elementwise multiplication.
+  Eigen::ArrayXd temp = M.diagonal().array() * stiffness_.array();
+  Eigen::ArrayXd damping_gains = 2 * temp.sqrt();
+  damping_gains *= damping_ratio_.array();
+  Eigen::VectorXd u_damping =
+      -(damping_gains * state_velocity.array()).matrix();
+
+  Eigen::VectorXd tau_o = u_stiffness.tail(num_v) + u_damping;
 
   // // compute the selection matrix S to
   // // unselect the floating base and upper body
