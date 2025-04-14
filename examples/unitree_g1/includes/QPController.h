@@ -50,6 +50,9 @@ class QPController {
 
   MatrixX<double> ComputeJacobianPseudoInverse(const MatrixX<double>& J,
                                                double damping_eps = 1e-6);
+
+  Eigen::Vector3d GetRPYInWorld(
+      const drake::multibody::Body<double>& body) const;
 };
 }  // namespace unitree_g1
 }  // namespace examples

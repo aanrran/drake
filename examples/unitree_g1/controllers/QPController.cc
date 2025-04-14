@@ -146,9 +146,9 @@ std::pair<Eigen::MatrixXd, Eigen::MatrixXd> QPController::GetBodyJacobian(
       drake::multibody::JacobianWrtVariable::kV,  // Compute w.r.t. joint
                                                   // velocities
       foot_frame,
-      Eigen::VectorXd::Zero(3),  // Center to the foot frame
-      plant_.world_frame(),      // Express in world frame
-      plant_.world_frame(),      // Measured in world frame
+      Eigen::Vector3d::Zero(),  // Center to the foot frame
+      plant_.world_frame(),     // Express in world frame
+      plant_.world_frame(),     // Measured in world frame
       &J_spacial);
 
   // Stack the Jacobian
@@ -168,15 +168,22 @@ std::pair<Eigen::VectorXd, Eigen::VectorXd> QPController::GetBodyBias(
   const drake::multibody::SpatialAcceleration<double> spacial_bias =
       plant_.CalcBiasSpatialAcceleration(
           context_, drake::multibody::JacobianWrtVariable::kV,
-          foot_frame,                // Measured frame
-          Eigen::VectorXd::Zero(3),  // Point of interest
-          plant_.world_frame(),      // Expressed in frame
-          plant_.world_frame()       // Measured in frame
+          foot_frame,               // Measured frame
+          Eigen::Vector3d::Zero(),  // Point of interest
+          plant_.world_frame(),     // Expressed in frame
+          plant_.world_frame()      // Measured in frame
       );
   JdotV_trans = spacial_bias.translational();
   JdotV_rot = spacial_bias.rotational();
 
   return std::make_pair(JdotV_trans, JdotV_rot);
+}
+
+Eigen::Vector3d QPController::GetRPYInWorld(
+    const drake::multibody::Body<double>& body) const {
+  const drake::math::RotationMatrix<double> R_WB =
+      plant_.EvalBodyPoseInWorld(context_, body).rotation();
+  return drake::math::RollPitchYaw<double>(R_WB).vector();
 }
 
 Eigen::VectorXd QPController::CalcTorque(Eigen::VectorXd desired_position,
@@ -192,7 +199,8 @@ Eigen::VectorXd QPController::CalcTorque(Eigen::VectorXd desired_position,
 
   // Compute mass matrix H
   Eigen::MatrixXd M(num_v, num_v);
-  plant_.CalcMassMatrixViaInverseDynamics(context_, &M);
+  plant_.CalcMassMatrix(context_, &M);
+  Eigen::MatrixXd M_inverse = M.inverse();
   // Compute gravity forces
   Eigen::VectorXd tau_g = plant_.CalcGravityGeneralizedForces(context_);
   // Compute Coriolis and centrifugal forces
@@ -200,6 +208,7 @@ Eigen::VectorXd QPController::CalcTorque(Eigen::VectorXd desired_position,
   plant_.CalcBiasTerm(context_, &Cv);  // b
   // Extract the actuation matrix from the plant (B matrix).
   Eigen::MatrixXd S = plant_.MakeActuationMatrix().transpose();
+
   // Center of mass Jacobian
   Eigen::MatrixXd J_com(3, num_v);
   plant_.CalcJacobianCenterOfMassTranslationalVelocity(
@@ -207,27 +216,6 @@ Eigen::VectorXd QPController::CalcTorque(Eigen::VectorXd desired_position,
       plant_.world_frame(), &J_com);
   // Nullspace projection
   Eigen::MatrixXd N = ComputeNullSpaceProjection(J_com, M);
-  // CoM angular momentum jacobian
-  Eigen::MatrixXd J_k(3, num_v);
-  plant_.CalcJacobianAngularVelocity(
-      context_, drake::multibody::JacobianWrtVariable::kV, plant_.world_frame(),
-      plant_.world_frame(), plant_.world_frame(), &J_k);
-  // coner of mass mementum matrix time derivative
-  // Get the current CoM position
-  drake::Vector3<double> com_position =
-      plant_.CalcCenterOfMassPositionInWorld(context_);
-  // Compute the bias acceleration (Coriolis and centrifugal effects)
-  const drake::multibody::SpatialAcceleration<double> com_spacial_bias =
-      plant_.CalcBiasSpatialAcceleration(
-          context_,
-          drake::multibody::JacobianWrtVariable::kV,  // ✅ Use kV
-          plant_.world_frame(),                       // Measured frame
-          com_position,          // Point of interest (CoM position)
-          plant_.world_frame(),  // Expressed in world frame
-          plant_.world_frame()   // Measured relative to world
-      );
-  // const auto com_bias_trans = com_spacial_bias.translational();
-  const auto Jd_qd_k = com_spacial_bias.rotational();
 
   // Compute Foot Jacobian
   const auto& right_foot = plant_.GetBodyByName("right_ankle_roll_link");
@@ -241,7 +229,6 @@ Eigen::VectorXd QPController::CalcTorque(Eigen::VectorXd desired_position,
 
   // Contact Jacobians
   std::vector<Eigen::Vector3d> contact_points = GetFootContactPoints();
-
   auto [J_right_contact, JdotV_right_contact] =
       ContactJacobianAndBias(right_foot.body_frame(), contact_points);
   auto [J_left_contact, JdotV_left_contact] =
@@ -279,40 +266,107 @@ Eigen::VectorXd QPController::CalcTorque(Eigen::VectorXd desired_position,
 
   Eigen::VectorXd tau_o = u_stiffness.tail(num_v) + u_damping;
 
-  // // compute the selection matrix S to
-  // // unselect the floating base and upper body
-  // Eigen::MatrixXd S_com = Eigen::MatrixXd::Zero(num_v, num_v);
-  // // Opt out the floating joint (first 6 axes) and the last few joints from
-  // // joint 14 to joint 31
-  // S_com.bottomRightCorner(num_a, num_a) =
-  //     Eigen::MatrixXd::Identity(num_a, num_a);
-  // S_com.bottomRightCorner(12, 12) = Eigen::MatrixXd::Zero(12, 12);
+  // Compute desired linear accelerations of the feet
+  // Compute he desired acceleration for the left foot
+  double Kp_foot = 30.0;
+  double Kd_foot = 3.7;
+  Eigen::Vector3d x_left = plant_.EvalBodyPoseInWorld(context_, left_foot)
+                               .translation();  // [x, y, z] in world
+  Eigen::Vector3d xd_left = J_left * state_velocity;
+  // PD Controller for left foot
+  Eigen::Vector3d x_left_nom(-0.0, 0.1, 0.3), xd_left_nom(0.0, 0.0, 0.0);
+  // Compute λ_M (Largest eigenvalue of Mass matrix M(q))
+  Eigen::MatrixXd Lambda_left_inv = (J_left * M_inverse * J_left.transpose());
+  Eigen::Vector3d xdd_left_des =
+      Lambda_left_inv *
+      (Kp_foot * (x_left_nom - x_left) + Kd_foot * (xd_left_nom - xd_left));
 
-  // // Compute the null space projection jacobian
-  // MatrixX<double> J_com_null = J_com * S_com;
-  // // Compute CoM velocity
-  // Eigen::Vector3d com_velocity = J_com * state_velocity;
-  // // Compute the bias acceleration (Coriolis and centrifugal effects)
-  // const drake::multibody::SpatialAcceleration<double> com_spacial_bias =
-  //     plant_.CalcBiasSpatialAcceleration(
-  //         context_,
-  //         drake::multibody::JacobianWrtVariable::kV,  // ✅ Use kV
-  //         plant_.world_frame(),                       // Measured frame
-  //         com_position,          // Point of interest (CoM position)
-  //         plant_.world_frame(),  // Expressed in world frame
-  //         plant_.world_frame()   // Measured relative to world
-  //     );
-  // const auto com_bias_trans = com_spacial_bias.translational();
-  // const auto com_bias_rot = com_spacial_bias.rotational();
-  // // Compute inverse of λ com
+  // Compute he desired acceleration for the right foot
+  Eigen::Vector3d x_right = plant_.EvalBodyPoseInWorld(context_, right_foot)
+                                .translation();  // [x, y, z] in world
+  Eigen::Vector3d xd_right = J_right * state_velocity;
+  // PD Controller for right foot
+  Eigen::Vector3d x_right_nom(-0.0, 0.1, 0.3), xd_right_nom(0.0, 0.0, 0.0);
+  // Compute λ_M (Largest eigenvalue of Mass matrix M(q))
+  Eigen::MatrixXd Lambda_right_inv =
+      (J_right * M_inverse * J_right.transpose());
+  Eigen::Vector3d xdd_right_des =
+      Lambda_right_inv *
+      (Kp_foot * (x_right_nom - x_right) + Kd_foot * (xd_right_nom - xd_right));
 
-  // MatrixX<double> J_com_pinv = ComputeJacobianPseudoInverse(J_com_null);
+  // Compute desired angular accelerations of the feet
+  // Compute the desired rpy acceleration for the left foot
+  Eigen::Vector3d rpy_left = GetRPYInWorld(left_foot);  // [roll, pitch, yaw]
+  Eigen::Vector3d rpyd_left = J_rpyleft * state_velocity;
+  Eigen::Vector3d rpy_left_nom(0.0, 0.0, 0.0), rpyd_left_nom(0.0, 0.0, 0.0);
+  // Compute inverse of λ left rotational
+  Eigen::MatrixXd Lambda_left_rpy_inv =
+      (J_rpyleft * M_inverse * J_rpyleft.transpose());
+  Eigen::Vector3d rpydd_left_des =
+      Lambda_left_rpy_inv * (Kp_foot * (rpy_left_nom - rpy_left) +
+                             Kd_foot * (rpyd_left_nom - rpyd_left));
 
-  // // 1. Compute λ_M (Largest eigenvalue of Mass matrix M(q))
-  // Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> eigen_solver_M(M);
-  // double lambda_M = eigen_solver_M.eigenvalues().maxCoeff();
+  // Compute the desired rpy acceleration for the right foot
+  Eigen::Vector3d rpy_right = GetRPYInWorld(right_foot);  // [roll, pitch, yaw]
+  Eigen::Vector3d rpyd_right = J_rpyright * state_velocity;
+  Eigen::Vector3d rpy_right_nom(0.0, 0.0, 0.0), rpyd_right_nom(0.0, 0.0, 0.0);
+  // Compute inverse of λ right rotational
+  Eigen::MatrixXd Lambda_right_rpy_inv =
+      (J_rpyright * M_inverse * J_rpyright.transpose());
+  Eigen::Vector3d rpydd_right_des =
+      Lambda_right_rpy_inv * (Kp_foot * (rpy_right_nom - rpy_right) +
+                              Kd_foot * (rpyd_right_nom - rpyd_right));
 
-  // double mass_total = plant_.CalcTotalMass(context_);
+  // Compute desired torso angular acceleration
+  double Kp_torso = 28.0;
+  double Kd_torso = 3.7;
+  Eigen::Vector3d rpy_torso = GetRPYInWorld(torso);  // [roll, pitch, yaw]
+  Eigen::Vector3d rpyd_torso = J_torso * state_velocity;
+  Eigen::Vector3d rpy_torso_nom(0.0, 0.0, 0.0), rpyd_torso_nom(0.0, 0.0, 0.0);
+  // Compute inverse of λ torso rotational
+  Eigen::MatrixXd Lambda_torso_rpy_inv =
+      (J_torso * M_inverse * J_torso.transpose());
+  Eigen::Vector3d rpydd_torso_des =
+      Lambda_torso_rpy_inv * (Kp_torso * (rpy_torso_nom - rpy_torso) +
+                              Kd_torso * (rpyd_torso_nom - rpyd_torso));
+
+  // Compute energy shaping-based interface as a linear constraint
+  // uV = tau_g - kappa*J'*(x_task-x2) - Kd*(qd-J'*u2) = A_int*u2 + b_int
+  // Compute the midpoint between the left and right foot positions
+  const auto& X_WR = plant_.EvalBodyPoseInWorld(context_, right_foot);
+  const auto& X_WL = plant_.EvalBodyPoseInWorld(context_, left_foot);
+
+  Eigen::Vector3d com_cmd = 0.5 * (X_WR.translation() + X_WL.translation()) +
+                            Eigen::Vector3d(0.0, 0.0, 0.0);
+
+  // set 0.5 meter in the z-direction
+  com_cmd.z() += 0.5;
+  // Get the current CoM position
+  drake::Vector3<double> x_com =
+      plant_.CalcCenterOfMassPositionInWorld(context_);
+  // 1. Compute λ_M (Largest eigenvalue of Mass matrix M(q))
+  Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> eigen_solver_M(M);
+  double lambda_M = eigen_solver_M.eigenvalues().maxCoeff();
+
+  // 2. Compute λ_J_com (Largest eigenvalue of J_com^T * J_com)
+  Eigen::MatrixXd JcomJcomt = J_com.transpose() * J_com;
+  Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> eigen_solver_Jcom(JcomJcomt);
+  double lambda_J_com = eigen_solver_Jcom.eigenvalues().maxCoeff();
+  double alpha_com = 0.2;  // chosen conservatively
+  double mass_total = plant_.CalcTotalMass(context_);
+
+  // Compute κ based on the eigenvalues computed above
+  double kappa_max_com =
+      (2.0 * lambda_M) /
+      (alpha_com * alpha_com * mass_total * mass_total * lambda_J_com);
+
+  // Choose κ smaller than this limit
+  double kappa_com = 0.9 * kappa_max_com;  // safety margin of 10%
+  Eigen::MatrixXd KD_com = 0.9 * M;
+  Eigen::MatrixXd A_int = KD_com * J_com.transpose();
+  Eigen::VectorXd b_int =
+      tau_g - 2 * kappa_com * J_com.transpose() * (x_com - com_cmd) -
+      KD_com * state_velocity;
 
   return Eigen::VectorXd::Zero(plant_.num_velocities());
 }
