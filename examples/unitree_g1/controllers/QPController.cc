@@ -99,69 +99,206 @@ MatrixX<double> QPController::ComputeJacobianPseudoInverse(
   }
 }
 
-MatrixX<double> QPController::ComputeContactJacobian(
+std::pair<Eigen::MatrixXd, Eigen::VectorXd>
+QPController::ContactJacobianAndBias(
     const drake::multibody::Frame<double>& foot_frame,
     const std::vector<Eigen::Vector3d>& contact_points) {
-  int num_contacts = contact_points.size();
+  const int num_contacts = contact_points.size();
   const int num_v = plant_.num_velocities();
-  //   const int num_a = plant_.num_actuators();   // number of actuated DoFs
 
-  //   // Assumes the first 6 DoFs are unactuated (floating base)
-  //   Eigen::MatrixXd U = Eigen::MatrixXd::Zero(num_v, num_v);
-  //   U.block(num_v - num_a, num_v - num_a, num_a, num_a) =
-  //   Eigen::MatrixXd::Identity(num_a, num_a); Contact Jacobian: Each point
-  //   contributes a 3xN matrix (x, y, z velocity)
-  MatrixX<double> J_c(3 * num_contacts, num_v);
+  Eigen::MatrixXd J_c(3 * num_contacts, num_v);
+  Eigen::VectorXd JdotV_r(3 * num_contacts);
 
   for (int i = 0; i < num_contacts; ++i) {
-    MatrixX<double> J_temp(3, num_v);
+    Eigen::MatrixXd J_temp(3, num_v);
 
-    // Compute translational velocity Jacobian for each contact point
+    // Compute translational Jacobian at contact point i
     plant_.CalcJacobianTranslationalVelocity(
-        context_,
-        drake::multibody::JacobianWrtVariable::kV,  // Compute w.r.t. joint
-                                                    // velocities
-        foot_frame,
-        contact_points[i],     // Contact point relative to the foot frame
-        plant_.world_frame(),  // Express in world frame
-        plant_.world_frame(),  // Measured in world frame
-        &J_temp);
+        context_, drake::multibody::JacobianWrtVariable::kV, foot_frame,
+        contact_points[i],  // ✅ use i here
+        plant_.world_frame(), plant_.world_frame(), &J_temp);
 
-    // Stack the Jacobian
-    J_c.block(3 * i, 0, 3, num_v) = J_temp;
-  }
+    // Compute J̇·v at the same contact point i
+    Eigen::Vector3d JdotV_r_temp = plant_.CalcBiasTranslationalAcceleration(
+        context_, drake::multibody::JacobianWrtVariable::kV, foot_frame,
+        contact_points[i],  // ✅ use i here
+        plant_.world_frame(), plant_.world_frame());
 
-  return J_c;
-}
-
-MatrixX<double> QPController::ComputContactBias(
-    const drake::multibody::Frame<double>& foot_frame,
-    const std::vector<Eigen::Vector3d>& contact_points) {
-  int num_contacts = contact_points.size();
-  int num_velocities = plant_.num_velocities();
-
-  // Contact Jacobian: Each point contributes a 3xN vector (x, y, z velocity)
-  VectorX<double> JdotV_r(3 * num_contacts);
-
-  for (int i = 0; i < num_contacts; ++i) {
-    MatrixX<double> J_temp(3, num_velocities);
-
-    VectorX<double> JdotV_r_temp = plant_.CalcBiasTranslationalAcceleration(
-        context_, drake::multibody::JacobianWrtVariable::kV,
-        foot_frame,            // Measured frame
-        contact_points[0],     // Point of interest
-        plant_.world_frame(),  // Expressed in frame
-        plant_.world_frame()   // Measured in frame
-    );
-    // Stack the Jacobian
+    J_c.block<3, Eigen::Dynamic>(3 * i, 0, 3, num_v) = J_temp;
     JdotV_r.segment<3>(3 * i) = JdotV_r_temp;
   }
 
-  return JdotV_r;
+  return std::make_pair(J_c, JdotV_r);
+}
+
+std::pair<Eigen::MatrixXd, Eigen::MatrixXd> QPController::GetBodyJacobian(
+    const drake::multibody::Frame<double>& foot_frame) {
+  const int num_v = plant_.num_velocities();
+
+  MatrixX<double> J_trans(3, num_v);
+  MatrixX<double> J_rot(3, num_v);
+
+  MatrixX<double> J_spacial(6, num_v);
+
+  // Compute translational velocity Jacobian for each contact point
+  plant_.CalcJacobianSpatialVelocity(
+      context_,
+      drake::multibody::JacobianWrtVariable::kV,  // Compute w.r.t. joint
+                                                  // velocities
+      foot_frame,
+      Eigen::VectorXd::Zero(3),  // Center to the foot frame
+      plant_.world_frame(),      // Express in world frame
+      plant_.world_frame(),      // Measured in world frame
+      &J_spacial);
+
+  // Stack the Jacobian
+  J_rot = J_spacial.topRows(3);
+  J_trans = J_spacial.bottomRows(3);
+
+  return std::make_pair(J_trans, J_rot);
+}
+
+std::pair<Eigen::VectorXd, Eigen::VectorXd> QPController::GetBodyBias(
+    const drake::multibody::Frame<double>& foot_frame) {
+  // Contact Jacobian: a 3x1 vector (x, y, z velocity)
+  VectorX<double> JdotV_trans(3);
+  VectorX<double> JdotV_rot(3);
+
+  // Compute the bias acceleration (Coriolis and centrifugal effects)
+  const drake::multibody::SpatialAcceleration<double> spacial_bias =
+      plant_.CalcBiasSpatialAcceleration(
+          context_, drake::multibody::JacobianWrtVariable::kV,
+          foot_frame,                // Measured frame
+          Eigen::VectorXd::Zero(3),  // Point of interest
+          plant_.world_frame(),      // Expressed in frame
+          plant_.world_frame()       // Measured in frame
+      );
+  JdotV_trans = spacial_bias.translational();
+  JdotV_rot = spacial_bias.rotational();
+
+  return std::make_pair(JdotV_trans, JdotV_rot);
 }
 
 Eigen::VectorXd QPController::CalcTorque(Eigen::VectorXd desired_position,
                                          Eigen::VectorXd tau_sensor) {
+  // Dynamic
+  const drake::VectorX<double> state_position = plant_.GetPositions(context_);
+  const drake::VectorX<double> state_velocity = plant_.GetVelocities(context_);
+
+  // compute the sensor torque
+  const int num_v = plant_.num_velocities();
+  const int num_a = plant_.num_actuators();  // number of actuated DoFs
+  Eigen::VectorXd tau_sensor_full = Eigen::VectorXd::Zero(num_v);
+  tau_sensor_full.tail(num_a) = tau_sensor;
+
+  // Compute mass matrix H
+  Eigen::MatrixXd M(num_v, num_v);
+  plant_.CalcMassMatrixViaInverseDynamics(context_, &M);
+  // Compute gravity forces
+  Eigen::VectorXd tau_g = plant_.CalcGravityGeneralizedForces(context_);
+  // Compute Coriolis and centrifugal forces
+  VectorX<double> Cv(num_v);
+  plant_.CalcBiasTerm(context_, &Cv);  // b
+  // Extract the actuation matrix from the plant (B matrix).
+  Eigen::MatrixXd S = plant_.MakeActuationMatrix().transpose();
+  // Center of mass Jacobian
+  Eigen::MatrixXd J_com(3, num_v);
+  plant_.CalcJacobianCenterOfMassTranslationalVelocity(
+      context_, drake::multibody::JacobianWrtVariable::kV, plant_.world_frame(),
+      plant_.world_frame(), &J_com);
+  // Nullspace projection
+  Eigen::MatrixXd N = ComputeNullSpaceProjection(J_com, M);
+  // CoM angular momentum jacobian
+  Eigen::MatrixXd J_k(3, num_v);
+  plant_.CalcJacobianAngularVelocity(
+      context_, drake::multibody::JacobianWrtVariable::kV, plant_.world_frame(),
+      plant_.world_frame(), plant_.world_frame(), &J_k);
+  // coner of mass mementum matrix time derivative
+  // Get the current CoM position
+  drake::Vector3<double> com_position =
+      plant_.CalcCenterOfMassPositionInWorld(context_);
+  // Compute the bias acceleration (Coriolis and centrifugal effects)
+  const drake::multibody::SpatialAcceleration<double> com_spacial_bias =
+      plant_.CalcBiasSpatialAcceleration(
+          context_,
+          drake::multibody::JacobianWrtVariable::kV,  // ✅ Use kV
+          plant_.world_frame(),                       // Measured frame
+          com_position,          // Point of interest (CoM position)
+          plant_.world_frame(),  // Expressed in world frame
+          plant_.world_frame()   // Measured relative to world
+      );
+  // const auto com_bias_trans = com_spacial_bias.translational();
+  const auto Jd_qd_k = com_spacial_bias.rotational();
+
+  // Compute Foot Jacobian
+  const auto& right_foot = plant_.GetBodyByName("right_ankle_roll_link");
+  const auto& left_foot = plant_.GetBodyByName("left_ankle_roll_link");
+
+  auto [J_right, J_rpyright] = GetBodyJacobian(right_foot.body_frame());
+  auto [J_left, J_rpyleft] = GetBodyJacobian(left_foot.body_frame());
+
+  auto [Jd_qd_right, Jd_qd_rpyright] = GetBodyBias(right_foot.body_frame());
+  auto [Jd_qd_left, Jd_qd_rpyleft] = GetBodyBias(left_foot.body_frame());
+
+  // Contact Jacobians
+  std::vector<Eigen::Vector3d> contact_points = GetFootContactPoints();
+
+  auto [J_right_contact, JdotV_right_contact] =
+      ContactJacobianAndBias(right_foot.body_frame(), contact_points);
+  auto [J_left_contact, JdotV_left_contact] =
+      ContactJacobianAndBias(left_foot.body_frame(), contact_points);
+  // stack the jacobians and bias
+  MatrixX<double> contact_jacobians = Eigen::MatrixXd::Zero(
+      J_right_contact.rows() + J_left_contact.rows(), num_v);
+  contact_jacobians.topRows(J_right_contact.rows()) = J_right_contact;
+  contact_jacobians.bottomRows(J_left_contact.rows()) = J_left_contact;
+  Eigen::VectorXd contact_jacobians_dot_v = Eigen::VectorXd::Zero(
+      JdotV_right_contact.size() + JdotV_left_contact.size());
+  contact_jacobians_dot_v.head(JdotV_right_contact.size()) =
+      JdotV_right_contact;
+  contact_jacobians_dot_v.tail(JdotV_left_contact.size()) = JdotV_left_contact;
+
+  // torso jacobian and bias
+  const auto& torso = plant_.GetBodyByName("torso_link");
+
+  auto [J_trans_torso, J_torso] = GetBodyJacobian(torso.body_frame());
+  auto [Jd_qd_trans_torso, Jd_qd_torso] = GetBodyBias(torso.body_frame());
+
+  // // compute the selection matrix S to
+  // // unselect the floating base and upper body
+  // Eigen::MatrixXd S_com = Eigen::MatrixXd::Zero(num_v, num_v);
+  // // Opt out the floating joint (first 6 axes) and the last few joints from
+  // // joint 14 to joint 31
+  // S_com.bottomRightCorner(num_a, num_a) =
+  //     Eigen::MatrixXd::Identity(num_a, num_a);
+  // S_com.bottomRightCorner(12, 12) = Eigen::MatrixXd::Zero(12, 12);
+
+  // // Compute the null space projection jacobian
+  // MatrixX<double> J_com_null = J_com * S_com;
+  // // Compute CoM velocity
+  // Eigen::Vector3d com_velocity = J_com * state_velocity;
+  // // Compute the bias acceleration (Coriolis and centrifugal effects)
+  // const drake::multibody::SpatialAcceleration<double> com_spacial_bias =
+  //     plant_.CalcBiasSpatialAcceleration(
+  //         context_,
+  //         drake::multibody::JacobianWrtVariable::kV,  // ✅ Use kV
+  //         plant_.world_frame(),                       // Measured frame
+  //         com_position,          // Point of interest (CoM position)
+  //         plant_.world_frame(),  // Expressed in world frame
+  //         plant_.world_frame()   // Measured relative to world
+  //     );
+  // const auto com_bias_trans = com_spacial_bias.translational();
+  // const auto com_bias_rot = com_spacial_bias.rotational();
+  // // Compute inverse of λ com
+
+  // MatrixX<double> J_com_pinv = ComputeJacobianPseudoInverse(J_com_null);
+
+  // // 1. Compute λ_M (Largest eigenvalue of Mass matrix M(q))
+  // Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> eigen_solver_M(M);
+  // double lambda_M = eigen_solver_M.eigenvalues().maxCoeff();
+
+  // double mass_total = plant_.CalcTotalMass(context_);
+
   return Eigen::VectorXd::Zero(plant_.num_velocities());
 }
 

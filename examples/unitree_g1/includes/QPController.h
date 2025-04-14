@@ -31,20 +31,23 @@ class QPController {
   std::vector<Eigen::Vector3d> contact_points_;
 
   // System matrices and vectors
-  // Eigen::MatrixXd W_tau_, W_f_, S_, J_task_, J_dot_task_, A_friction_;
-  // Eigen::VectorXd tau_ref_, f_ref_, tau_min_, tau_max_, b_friction_;
 
   int num_joints_;
 
   std::vector<Eigen::Vector3d> GetFootContactPoints() const;
   MatrixX<double> ComputeNullSpaceProjection(
       const MatrixX<double>& J_c, const MatrixX<double>& Mass_matrix);
-  MatrixX<double> ComputeContactJacobian(
+
+  std::pair<Eigen::MatrixXd, Eigen::MatrixXd> GetBodyJacobian(
+      const drake::multibody::Frame<double>& foot_frame);
+
+  std::pair<Eigen::VectorXd, Eigen::VectorXd> GetBodyBias(
+      const drake::multibody::Frame<double>& foot_frame);
+
+  std::pair<Eigen::MatrixXd, Eigen::VectorXd> ContactJacobianAndBias(
       const drake::multibody::Frame<double>& foot_frame,
       const std::vector<Eigen::Vector3d>& contact_points);
-  MatrixX<double> ComputContactBias(
-      const drake::multibody::Frame<double>& foot_frame,
-      const std::vector<Eigen::Vector3d>& contact_points);
+
   MatrixX<double> ComputeJacobianPseudoInverse(const MatrixX<double>& J,
                                                double damping_eps = 1e-6);
 };

@@ -149,7 +149,7 @@ MatrixX<double> ImpedanceController::ComputContactBias(
     VectorX<double> JdotV_r_temp = plant_.CalcBiasTranslationalAcceleration(
         context_, drake::multibody::JacobianWrtVariable::kV,
         foot_frame,            // Measured frame
-        contact_points[0],     // Point of interest
+        contact_points[i],     // Point of interest
         plant_.world_frame(),  // Expressed in frame
         plant_.world_frame()   // Measured in frame
     );
@@ -453,8 +453,8 @@ Eigen::VectorXd ImpedanceController::CalcTorque(
   //   // (4) Compute task torque
   //   VectorX<double> u_left = Mass_matrix * accel_task_left;
 
-  return 0.0 * u_com + 0.0 * u_torsoRot +
-         1.0 * (S_torso).transpose() * (u_stiffness.tail(num_v) + u_damping) -
+  return 1.0 * u_com + 0.0 * u_torsoRot +
+         1.0 * (N_com_r).transpose() * (u_stiffness.tail(num_v) + u_damping) -
          0.0 * tau_g - 0.0 * contact_estimate;
   //   return 0.0 * u_left - 1.0 * tau_g - 1.0 * contact_estimate +
   //  ComputeNullSpaceProjection(J_r, Mass_matrix).transpose() *
