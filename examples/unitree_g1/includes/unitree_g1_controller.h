@@ -1,5 +1,6 @@
 #pragma once
 #include "examples/unitree_g1/includes/QPController.h"
+#include "examples/unitree_g1/includes/WBController.h"
 #include "examples/unitree_g1/includes/impedance_controller.h"
 
 #include "drake/multibody/plant/multibody_plant.h"
@@ -61,8 +62,9 @@ class UnitreeG1Controller : public LeafSystem<T> {
    */
   std::unique_ptr<Context<T>> plant_context_;
 
-  std::unique_ptr<ImpedanceController> my_WBC_controller_;
-  std::unique_ptr<QPController> my_QP_controller_;
+  std::unique_ptr<ImpedanceController> my_controller_;
+  // std::unique_ptr<QPController> my_QP_controller_;
+  std::unique_ptr<WBController> my_WB_controller_;
   /**
    * @brief Computes torque output for the robot based on velocity damping.
    *

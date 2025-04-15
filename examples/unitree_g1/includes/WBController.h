@@ -1,4 +1,4 @@
-// QPController.h - Header File
+// WBController.h - Header File
 #pragma once
 
 #include <memory>
@@ -12,9 +12,9 @@
 namespace drake {
 namespace examples {
 namespace unitree_g1 {
-class QPController {
+class WBController {
  public:
-  explicit QPController(const drake::multibody::MultibodyPlant<double>& plant,
+  explicit WBController(const drake::multibody::MultibodyPlant<double>& plant,
                         const drake::systems::Context<double>& context,
                         Eigen::VectorX<double> stiffness,
                         Eigen::VectorX<double> damping_ratio);
@@ -27,12 +27,14 @@ class QPController {
   const drake::systems::Context<double>& context_;
 
   const Eigen::VectorX<double> stiffness_, damping_ratio_;
+
+  Eigen::MatrixXd Ivv_, Iaa_;
+  int num_q_, num_a_, num_pos_;
+
   // QP solver
   std::unique_ptr<drake::solvers::OsqpSolver> solver_;
   drake::solvers::MathematicalProgram prog_;
   drake::solvers::VectorXDecisionVariable tau_, qdd_, u2_, tau0_, JTfr_;
-
-  std::vector<Eigen::Vector3d> GetFootContactPoints() const;
 
   std::pair<Eigen::MatrixXd, Eigen::MatrixXd> GetBodyJacobian(
       const drake::multibody::Frame<double>& foot_frame);
@@ -40,17 +42,14 @@ class QPController {
   std::pair<Eigen::VectorXd, Eigen::VectorXd> GetBodyBias(
       const drake::multibody::Frame<double>& foot_frame);
 
-  std::pair<Eigen::MatrixXd, Eigen::VectorXd> ContactJacobianAndBias(
-      const drake::multibody::Frame<double>& foot_frame,
-      const std::vector<Eigen::Vector3d>& contact_points);
-
   Eigen::Vector3d GetRPYInWorld(
       const drake::multibody::Body<double>& body) const;
 
-  void AddJacobianTypeCost(const Eigen::MatrixXd& J,
-                           const Eigen::VectorXd& Jd_qd,
-                           const Eigen::VectorXd& xdd_des, double weight);
+  Eigen::MatrixXd ComputeJacobianPseudoInv(const Eigen::MatrixXd& Jacobian,
+                                           const Eigen::MatrixXd& M_inverse,
+                                           const Eigen::MatrixXd& N_pre);
 };
+
 }  // namespace unitree_g1
 }  // namespace examples
 }  // namespace drake

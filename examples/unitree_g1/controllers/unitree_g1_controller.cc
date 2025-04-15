@@ -26,9 +26,9 @@ UnitreeG1Controller<T>::UnitreeG1Controller(const MultibodyPlant<T>& plant)
   // Initialize the Impedance Controller
   Eigen::VectorXd stiffness = Eigen::VectorXd::Constant(num_q, 10.5);
   Eigen::VectorXd damping_ratio = Eigen::VectorXd::Constant(num_v, 0.7);
-  my_QP_controller_ = std::make_unique<QPController>(plant_, *plant_context_,
+  my_WB_controller_ = std::make_unique<WBController>(plant_, *plant_context_,
                                                      stiffness, damping_ratio);
-  // my_WBC_controller_ = std::make_unique<ImpedanceController>(
+  // my_controller_ = std::make_unique<ImpedanceController>(
   //     plant_, *plant_context_, stiffness, damping_ratio);
   desired_position_ = Eigen::VectorXd::Zero(num_q);
   desired_position_ << 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
@@ -89,9 +89,9 @@ void UnitreeG1Controller<T>::CalcTorque(const Context<T>& context,
   plant_.SetPositionsAndVelocities(plant_context_.get(), x);
   // Compute damping torque: τ = -D * v, where D is a diagonal damping matrix
   torque->get_mutable_value() =
-      my_QP_controller_->CalcTorque(desired_position_, tau_sensor);
+      my_WB_controller_->CalcTorque(desired_position_, tau_sensor);
   // torque->get_mutable_value() =
-  //     my_WBC_controller_->CalcTorque(desired_position_, tau_sensor);
+  //     my_controller_->CalcTorque(desired_position_, tau_sensor);
   TimingLogger::GetInstance().StopTimer("RunController");  // timer stopped
 }
 

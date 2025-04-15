@@ -4,6 +4,25 @@ load("//tools/skylark:drake_cc.bzl", "drake_cc_binary", "drake_cc_googletest")
 package(default_visibility = ["//visibility:public"])
 
 cc_library(
+    name = "wb_controller",
+    srcs = ["controllers/WBController.cc"],
+    hdrs = ["includes/WBController.h"],
+    deps = [
+        "//solvers:mathematical_program",
+        "//solvers:solve",
+        "//solvers:osqp_solver",
+        "//examples/unitree_g1:simple_PID", 
+        "//examples/unitree_g1:timing_logger", 
+        "//multibody/plant",
+        "//multibody/plant:multibody_plant_config_functions",
+        "@drake//math",
+        "@drake//multibody/tree",
+        "@drake//common",
+        "@eigen",
+    ],
+)
+
+cc_library(
     name = "qp_controller",
     srcs = ["controllers/QPController.cc"],
     hdrs = ["includes/QPController.h"],
@@ -43,6 +62,7 @@ cc_library(
     srcs = ["controllers/unitree_g1_controller.cc"],
     hdrs = ["includes/unitree_g1_controller.h"],
     deps = [
+        "//examples/unitree_g1:wb_controller", 
         "//examples/unitree_g1:qp_controller", 
         "//examples/unitree_g1:impedance_controller", 
         "//examples/unitree_g1:timing_logger", 

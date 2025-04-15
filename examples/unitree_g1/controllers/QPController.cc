@@ -36,75 +36,6 @@ std::vector<Eigen::Vector3d> QPController::GetFootContactPoints() const {
           Eigen::Vector3d(0.050, 0.03, -0.001)};
 }
 
-// Robust dynamically consistent null-space projection with
-// CompleteOrthogonalDecomposition fallback
-MatrixX<double> QPController::ComputeNullSpaceProjection(
-    const MatrixX<double>& J_c, const MatrixX<double>& Mass_matrix) {
-  int n = J_c.cols();  // Number of generalized velocities (DOFs)
-
-  int num_a = plant_.num_velocities();  // number of actuated DoFs
-
-  // Projected Jacobian and actuated mass submatrix
-  Eigen::MatrixXd J_c_U = J_c.bottomRightCorner(J_c.rows(), num_a);
-  Eigen::MatrixXd M = Mass_matrix.block(n - num_a, n - num_a, num_a, num_a);
-
-  // Regularize M to avoid numerical issues during inversion
-  M.diagonal().array() += 1e-6;
-
-  Eigen::MatrixXd I = Eigen::MatrixXd::Identity(num_a, num_a);
-
-  // Compute the operational space inertia matrix: Lambda = J_c_U * M^-1 *
-  // J_c_U^T
-  Eigen::MatrixXd M_inv;
-  Eigen::LLT<Eigen::MatrixXd> llt(M);
-  if (llt.info() != Eigen::Success) {
-    throw std::runtime_error(
-        "Mass matrix inversion failed: M is not positive definite.");
-  }
-  M_inv = llt.solve(Eigen::MatrixXd::Identity(num_a, num_a));
-
-  Eigen::MatrixXd Lambda = J_c_U * M_inv * J_c_U.transpose();
-
-  // Regularize Lambda to avoid singularities
-  Lambda.diagonal().array() += 1e-6;
-
-  // Compute pseudo-inverse of Lambda using CompleteOrthogonalDecomposition
-  Eigen::CompleteOrthogonalDecomposition<Eigen::MatrixXd> cod(Lambda);
-  Eigen::MatrixXd Lambda_pinv = cod.pseudoInverse();
-
-  // Dynamically consistent pseudoinverse
-  Eigen::MatrixXd J_dyn_pinv = M_inv * J_c_U.transpose() * Lambda_pinv;
-
-  // Compute null-space projection in actuator subspace
-  Eigen::MatrixXd N_c = I - J_dyn_pinv * J_c_U;
-
-  // Embed into full-dimension matrix (n x n) with top-left block identity and
-  // bottom-right N_c
-  Eigen::MatrixXd N_c_return = Eigen::MatrixXd::Identity(n, n);
-  N_c_return.block(n - num_a, n - num_a, num_a, num_a) = N_c;
-
-  return N_c_return;
-}
-
-MatrixX<double> QPController::ComputeJacobianPseudoInverse(
-    const MatrixX<double>& J, double damping_eps) {
-  if (J.rows() < J.cols()) {
-    // Underdetermined: use Jᵗ (JJᵗ)⁻¹
-    MatrixX<double> JJt = J * J.transpose();
-    JJt.diagonal().array() += damping_eps;
-    MatrixX<double> JJt_inv =
-        JJt.llt().solve(MatrixX<double>::Identity(J.rows(), J.rows()));
-    return J.transpose() * JJt_inv;
-  } else {
-    // Overdetermined: use (JᵗJ)⁻¹ Jᵗ
-    MatrixX<double> JtJ = J.transpose() * J;
-    JtJ.diagonal().array() += damping_eps;
-    MatrixX<double> JtJ_inv =
-        JtJ.llt().solve(MatrixX<double>::Identity(J.cols(), J.cols()));
-    return JtJ_inv * J.transpose();
-  }
-}
-
 std::pair<Eigen::MatrixXd, Eigen::VectorXd>
 QPController::ContactJacobianAndBias(
     const drake::multibody::Frame<double>& foot_frame,
@@ -200,6 +131,7 @@ void QPController::AddJacobianTypeCost(const Eigen::MatrixXd& J,
   // Expand: 0.5 * qdd_' * Q * qdd_ + b' * qdd_ (ignore constant term)
 
   Eigen::MatrixXd Q = weight * J.transpose() * J;
+  Q.diagonal().array() += 1e-6;  // << regularization for PSD
   Eigen::VectorXd b = weight * J.transpose() * (Jd_qd - xdd_des);
 
   prog_.AddQuadraticCost(Q, b, qdd_);
@@ -217,13 +149,8 @@ Eigen::VectorXd QPController::CalcTorque(Eigen::VectorXd desired_position,
   tau_sensor_full.tail(num_a) = tau_sensor;
 
   // Compute mass matrix H
-  Eigen::MatrixXd M(num_v, num_v);
-  plant_.CalcMassMatrix(context_, &M);
-  Eigen::LLT<Eigen::MatrixXd> llt(M);
-  DRAKE_DEMAND(llt.info() == Eigen::Success);
-  Eigen::MatrixXd M_inverse =
-      llt.solve(Eigen::MatrixXd::Identity(M.rows(), M.cols()));
-
+  Eigen::MatrixXd Mass_matrix(num_v, num_v);
+  plant_.CalcMassMatrix(context_, &Mass_matrix);
   // Compute gravity forces
   Eigen::VectorXd tau_g = plant_.CalcGravityGeneralizedForces(context_);
   // Compute Coriolis and centrifugal forces
@@ -239,7 +166,26 @@ Eigen::VectorXd QPController::CalcTorque(Eigen::VectorXd desired_position,
       context_, drake::multibody::JacobianWrtVariable::kV, plant_.world_frame(),
       plant_.world_frame(), &J_com);
   // Nullspace projection
-  Eigen::MatrixXd N_com = ComputeNullSpaceProjection(J_com, M);
+  Eigen::LLT<Eigen::MatrixXd> llt(Mass_matrix);
+  DRAKE_DEMAND(llt.info() == Eigen::Success);
+  Eigen::MatrixXd M_inverse = llt.solve(
+      Eigen::MatrixXd::Identity(Mass_matrix.rows(), Mass_matrix.cols()));
+
+  Eigen::MatrixXd Lambda = J_com * M_inverse * J_com.transpose();
+
+  // Regularize Lambda to avoid singularities
+  Lambda.diagonal().array() += 1e-6;
+
+  // Compute pseudo-inverse of Lambda using CompleteOrthogonalDecomposition
+  Eigen::CompleteOrthogonalDecomposition<Eigen::MatrixXd> cod(Lambda);
+  Eigen::MatrixXd Lambda_pinv = cod.pseudoInverse();
+
+  // Dynamically consistent pseudoinverse
+  Eigen::MatrixXd J_dyn_pinv = M_inverse * J_com.transpose() * Lambda_pinv;
+
+  // Compute null-space projection in actuator subspace
+  Eigen::MatrixXd N_com =
+      Eigen::MatrixXd::Identity(num_v, num_v) - J_dyn_pinv * J_com;
 
   // Compute Foot Jacobian
   const auto& right_foot = plant_.GetBodyByName("right_ankle_roll_link");
@@ -268,6 +214,8 @@ Eigen::VectorXd QPController::CalcTorque(Eigen::VectorXd desired_position,
   contact_jacobians_dot_v.head(JdotV_right_contact.size()) =
       JdotV_right_contact;
   contact_jacobians_dot_v.tail(JdotV_left_contact.size()) = JdotV_left_contact;
+  DRAKE_DEMAND(contact_jacobians.allFinite());
+  DRAKE_DEMAND(contact_jacobians_dot_v.allFinite());
 
   // torso jacobian and bias
   const auto& torso = plant_.GetBodyByName("torso_link");
@@ -283,7 +231,7 @@ Eigen::VectorXd QPController::CalcTorque(Eigen::VectorXd desired_position,
   // Compute damping torque
   // Compute critical damping gains and scale by damping ratio. Use Eigen
   // arrays (rather than matrices) for elementwise multiplication.
-  Eigen::ArrayXd temp = M.diagonal().array() * stiffness_.array();
+  Eigen::ArrayXd temp = Mass_matrix.diagonal().array() * stiffness_.array();
   Eigen::ArrayXd damping_gains = 2 * temp.sqrt();
   damping_gains *= damping_ratio_.array();
   Eigen::VectorXd u_damping =
@@ -370,7 +318,7 @@ Eigen::VectorXd QPController::CalcTorque(Eigen::VectorXd desired_position,
   drake::Vector3<double> x_com =
       plant_.CalcCenterOfMassPositionInWorld(context_);
   // 1. Compute λ_M (Largest eigenvalue of Mass matrix M(q))
-  Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> eigen_solver_M(M);
+  Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> eigen_solver_M(Mass_matrix);
   double lambda_M = eigen_solver_M.eigenvalues().maxCoeff();
 
   // 2. Compute λ_J_com (Largest eigenvalue of J_com^T * J_com)
@@ -387,7 +335,7 @@ Eigen::VectorXd QPController::CalcTorque(Eigen::VectorXd desired_position,
 
   // Choose κ smaller than this limit
   double kappa_com = 0.9 * kappa_max_com;  // safety margin of 10%
-  Eigen::MatrixXd KD_com = 0.9 * M;
+  Eigen::MatrixXd KD_com = 0.9 * Mass_matrix;
   KD_com.diagonal().array() += 1e-6;  // Regularize
   Eigen::MatrixXd A_int = KD_com * J_com.transpose();
 
@@ -396,23 +344,23 @@ Eigen::VectorXd QPController::CalcTorque(Eigen::VectorXd desired_position,
       KD_com * state_velocity;
 
   // Nominal u2 tracking cost
-  const double w1 = 1e5;  // or whatever you tuned
+  const double w1 = 0.2;  // or whatever you tuned
   // Nominal u2 tracking cost
   Eigen::Vector3d u2_nom(0, 0, 0);
   prog_.AddQuadraticErrorCost(w1 * Eigen::MatrixXd::Identity(3, 3), u2_nom,
                               u2_);
   // Joint tracking cost
-  const double w2 = 1e5;
+  const double w2 = 0.5;
   prog_.AddQuadraticErrorCost(w2 * Eigen::MatrixXd::Identity(num_v, num_v),
                               tau_def_pose, tau_);
   // Foot tracking costs: position and orientation for each foot
-  const double w3 = 0;
+  const double w3 = 0.3;
   AddJacobianTypeCost(J_left, Jd_qd_left, xdd_left_des, w3);
   AddJacobianTypeCost(J_rpyleft, Jd_qd_rpyleft, rpydd_left_des, w3);
   AddJacobianTypeCost(J_right, Jd_qd_right, xdd_right_des, w3);
   AddJacobianTypeCost(J_rpyright, Jd_qd_rpyright, rpydd_right_des, w3);
   // torso orientation cost
-  const double w4 = 0;
+  const double w4 = 0.4;
   AddJacobianTypeCost(J_torso, Jd_qd_torso, rpydd_torso_des, w4);
 
   // Contact acceleration constraints
@@ -430,12 +378,15 @@ Eigen::VectorXd QPController::CalcTorque(Eigen::VectorXd desired_position,
 
     Eigen::VectorXd lb = rhs.array() + nu_min;
     Eigen::VectorXd ub = rhs.array() + nu_max;
+    DRAKE_DEMAND(lb.allFinite());
+    DRAKE_DEMAND(ub.allFinite());
 
     prog_.AddLinearConstraint(J, lb, ub, qdd_);
   }
   // Dynamic constraints
-  Eigen::MatrixXd A_dyn(M.rows(), 3 * num_v);  // [qdd, tau, JTfr]
-  A_dyn << M, -Selection_matirx, -Eigen::MatrixXd::Identity(num_v, num_v);
+  Eigen::MatrixXd A_dyn(Mass_matrix.rows(), 3 * num_v);  // [qdd, tau, JTfr]
+  A_dyn << Mass_matrix, -Selection_matirx,
+      -Eigen::MatrixXd::Identity(num_v, num_v);
 
   drake::solvers::VariableRefList vars_dyn = {
       Eigen::Ref<const drake::solvers::VectorXDecisionVariable>(qdd_),
@@ -445,37 +396,50 @@ Eigen::VectorXd QPController::CalcTorque(Eigen::VectorXd desired_position,
   prog_.AddLinearEqualityConstraint(
       A_dyn, tau_g - Cv, drake::solvers::ConcatenateVariableRefList(vars_dyn));
 
-  // Add interface constraint S'*tau + sum(J'*f_ext) = uV + N'*tau_0
-  // Left-hand side (LHS): S^T * tau + JTfr
-  Eigen::MatrixXd A_lhs = Selection_matirx;  // size: [num_v x num_v]
-  Eigen::MatrixXd I_lhs = Eigen::MatrixXd::Identity(num_v, num_v);  // JTfr term
+  //   // Add interface constraint S'*tau + sum(J'*f_ext) = uV + N'*tau_0
+  //   // Left-hand side (LHS): S^T * tau + JTfr
+  //   Eigen::MatrixXd A_lhs = Selection_matirx;  // size: [num_v x num_v]
+  //   Eigen::MatrixXd I_lhs = Eigen::MatrixXd::Identity(num_v, num_v);  // JTfr
+  //   term
 
-  // Right-hand side: A_int * u2 + N^T * tau0 + b_int
-  // So move everything to the left side to make:
-  // S^T * tau + JTfr - A_int * u2 - N^T * tau0 = b_int
+  //   // Right-hand side: A_int * u2 + N^T * tau0 + b_int
+  //   // So move everything to the left side to make:
+  //   // S^T * tau + JTfr - A_int * u2 - N^T * tau0 = b_int
 
-  // Build constraint matrix: [tau, tau0, u2, JTfr]
-  int dim = num_v + num_v + 3 + num_v;
-  Eigen::MatrixXd A_iface = Eigen::MatrixXd::Zero(num_v, dim);
+  //   // Build constraint matrix: [tau, tau0, u2, JTfr]
+  //   int dim = num_v + num_v + 3 + num_v;
+  //   Eigen::MatrixXd A_iface = Eigen::MatrixXd::Zero(num_v, dim);
 
-  // Fill columns
-  A_iface.block(0, 0, num_v, num_v) = Selection_matirx;        // tau
-  A_iface.block(0, num_v, num_v, num_v) = -N_com.transpose();  // tau0
-  A_iface.block(0, 2 * num_v, num_v, 3) = -A_int;              // u2
-  A_iface.block(0, 2 * num_v + 3, num_v, num_v) = I_lhs;       // JTfr
+  //   // Fill columns
+  //   A_iface.block(0, 0, num_v, num_v) = Selection_matirx;        // tau
+  //   A_iface.block(0, num_v, num_v, num_v) = -N_com.transpose();  // tau0
+  //   A_iface.block(0, 2 * num_v, num_v, 3) = -A_int;              // u2
+  //   A_iface.block(0, 2 * num_v + 3, num_v, num_v) = I_lhs;       // JTfr
 
-  // Build variable list
-  drake::solvers::VariableRefList vars_iface = {
-      Eigen::Ref<const drake::solvers::VectorXDecisionVariable>(tau_),
-      Eigen::Ref<const drake::solvers::VectorXDecisionVariable>(tau0_),
-      Eigen::Ref<const drake::solvers::VectorXDecisionVariable>(u2_),
-      Eigen::Ref<const drake::solvers::VectorXDecisionVariable>(JTfr_),
-  };
+  //   // Build variable list
+  //   drake::solvers::VariableRefList vars_iface = {
+  //       Eigen::Ref<const drake::solvers::VectorXDecisionVariable>(tau_),
+  //       Eigen::Ref<const drake::solvers::VectorXDecisionVariable>(tau0_),
+  //       Eigen::Ref<const drake::solvers::VectorXDecisionVariable>(u2_),
+  //       Eigen::Ref<const drake::solvers::VectorXDecisionVariable>(JTfr_),
+  //   };
 
-  prog_.AddLinearEqualityConstraint(
-      A_iface, b_int, drake::solvers::ConcatenateVariableRefList(vars_iface));
+  //   prog_.AddLinearEqualityConstraint(
+  //       A_iface, b_int,
+  //       drake::solvers::ConcatenateVariableRefList(vars_iface));
 
-  return Eigen::VectorXd::Zero(plant_.num_velocities());
+  // Solve the QP
+  drake::solvers::MathematicalProgramResult result = solver_->Solve(prog_);
+  if (!result.is_success()) {
+    throw std::runtime_error("Whole-body QP solve failed");
+  }
+  std::cout << "prog_.GetNumConstraints(): " << prog_.GetAllConstraints().size()
+            << std::endl;
+  std::cout << "prog_.GetNumVariables(): " << prog_.num_vars() << std::endl;
+
+  // Extract solution (e.g., tau)
+  Eigen::VectorXd tau_result = result.GetSolution(tau_);
+  return tau_result;
 }
 
 }  // namespace unitree_g1
