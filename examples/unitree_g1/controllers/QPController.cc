@@ -20,7 +20,13 @@ QPController::QPController(
       context_(context),
       stiffness_(stiffness),
       damping_ratio_(damping_ratio) {
-  contact_points_ = GetFootContactPoints();
+  solver_ = std::make_unique<drake::solvers::OsqpSolver>();
+  // Define variables: joint torques (tau), accelerations (ddq)
+  tau_ = prog_.NewContinuousVariables(plant_.num_velocities(), "tau");
+  qdd_ = prog_.NewContinuousVariables(plant_.num_velocities(), "qdd");
+  u2_ = prog_.NewContinuousVariables(3, "u2");
+  tau0_ = prog_.NewContinuousVariables(plant_.num_velocities(), "tau0");
+  JTfr_ = prog_.NewContinuousVariables(plant_.num_velocities(), "JTfr");
 }
 
 std::vector<Eigen::Vector3d> QPController::GetFootContactPoints() const {
@@ -36,7 +42,7 @@ MatrixX<double> QPController::ComputeNullSpaceProjection(
     const MatrixX<double>& J_c, const MatrixX<double>& Mass_matrix) {
   int n = J_c.cols();  // Number of generalized velocities (DOFs)
 
-  int num_a = plant_.num_actuators();  // number of actuated DoFs
+  int num_a = plant_.num_velocities();  // number of actuated DoFs
 
   // Projected Jacobian and actuated mass submatrix
   Eigen::MatrixXd J_c_U = J_c.bottomRightCorner(J_c.rows(), num_a);
@@ -186,6 +192,19 @@ Eigen::Vector3d QPController::GetRPYInWorld(
   return drake::math::RollPitchYaw<double>(R_WB).vector();
 }
 
+void QPController::AddJacobianTypeCost(const Eigen::MatrixXd& J,
+                                       const Eigen::VectorXd& Jd_qd,
+                                       const Eigen::VectorXd& xdd_des,
+                                       double weight) {
+  // Cost: weight * || J*qdd_ + Jd_qd - xdd_des ||²
+  // Expand: 0.5 * qdd_' * Q * qdd_ + b' * qdd_ (ignore constant term)
+
+  Eigen::MatrixXd Q = weight * J.transpose() * J;
+  Eigen::VectorXd b = weight * J.transpose() * (Jd_qd - xdd_des);
+
+  prog_.AddQuadraticCost(Q, b, qdd_);
+}
+
 Eigen::VectorXd QPController::CalcTorque(Eigen::VectorXd desired_position,
                                          Eigen::VectorXd tau_sensor) {
   // Dynamic
@@ -200,22 +219,27 @@ Eigen::VectorXd QPController::CalcTorque(Eigen::VectorXd desired_position,
   // Compute mass matrix H
   Eigen::MatrixXd M(num_v, num_v);
   plant_.CalcMassMatrix(context_, &M);
-  Eigen::MatrixXd M_inverse = M.inverse();
+  Eigen::LLT<Eigen::MatrixXd> llt(M);
+  DRAKE_DEMAND(llt.info() == Eigen::Success);
+  Eigen::MatrixXd M_inverse =
+      llt.solve(Eigen::MatrixXd::Identity(M.rows(), M.cols()));
+
   // Compute gravity forces
   Eigen::VectorXd tau_g = plant_.CalcGravityGeneralizedForces(context_);
   // Compute Coriolis and centrifugal forces
   VectorX<double> Cv(num_v);
   plant_.CalcBiasTerm(context_, &Cv);  // b
   // Extract the actuation matrix from the plant (B matrix).
-  Eigen::MatrixXd S = plant_.MakeActuationMatrix().transpose();
-
+  Eigen::MatrixXd Selection_matirx = Eigen::MatrixXd::Zero(num_v, num_a);
+  Selection_matirx.bottomRightCorner(num_a, num_a) =
+      Eigen::MatrixXd::Identity(num_a, num_a);
   // Center of mass Jacobian
   Eigen::MatrixXd J_com(3, num_v);
   plant_.CalcJacobianCenterOfMassTranslationalVelocity(
       context_, drake::multibody::JacobianWrtVariable::kV, plant_.world_frame(),
       plant_.world_frame(), &J_com);
   // Nullspace projection
-  Eigen::MatrixXd N = ComputeNullSpaceProjection(J_com, M);
+  Eigen::MatrixXd N_com = ComputeNullSpaceProjection(J_com, M);
 
   // Compute Foot Jacobian
   const auto& right_foot = plant_.GetBodyByName("right_ankle_roll_link");
@@ -234,6 +258,7 @@ Eigen::VectorXd QPController::CalcTorque(Eigen::VectorXd desired_position,
   auto [J_left_contact, JdotV_left_contact] =
       ContactJacobianAndBias(left_foot.body_frame(), contact_points);
   // stack the jacobians and bias
+  int num_contacts = static_cast<int>(contact_points.size() * 2);
   MatrixX<double> contact_jacobians = Eigen::MatrixXd::Zero(
       J_right_contact.rows() + J_left_contact.rows(), num_v);
   contact_jacobians.topRows(J_right_contact.rows()) = J_right_contact;
@@ -264,7 +289,7 @@ Eigen::VectorXd QPController::CalcTorque(Eigen::VectorXd desired_position,
   Eigen::VectorXd u_damping =
       -(damping_gains * state_velocity.array()).matrix();
 
-  Eigen::VectorXd tau_o = u_stiffness.tail(num_v) + u_damping;
+  Eigen::VectorXd tau_def_pose = u_stiffness.tail(num_v) + u_damping;
 
   // Compute desired linear accelerations of the feet
   // Compute he desired acceleration for the left foot
@@ -363,10 +388,92 @@ Eigen::VectorXd QPController::CalcTorque(Eigen::VectorXd desired_position,
   // Choose κ smaller than this limit
   double kappa_com = 0.9 * kappa_max_com;  // safety margin of 10%
   Eigen::MatrixXd KD_com = 0.9 * M;
+  KD_com.diagonal().array() += 1e-6;  // Regularize
   Eigen::MatrixXd A_int = KD_com * J_com.transpose();
+
   Eigen::VectorXd b_int =
       tau_g - 2 * kappa_com * J_com.transpose() * (x_com - com_cmd) -
       KD_com * state_velocity;
+
+  // Nominal u2 tracking cost
+  const double w1 = 1e5;  // or whatever you tuned
+  // Nominal u2 tracking cost
+  Eigen::Vector3d u2_nom(0, 0, 0);
+  prog_.AddQuadraticErrorCost(w1 * Eigen::MatrixXd::Identity(3, 3), u2_nom,
+                              u2_);
+  // Joint tracking cost
+  const double w2 = 1e5;
+  prog_.AddQuadraticErrorCost(w2 * Eigen::MatrixXd::Identity(num_v, num_v),
+                              tau_def_pose, tau_);
+  // Foot tracking costs: position and orientation for each foot
+  const double w3 = 0;
+  AddJacobianTypeCost(J_left, Jd_qd_left, xdd_left_des, w3);
+  AddJacobianTypeCost(J_rpyleft, Jd_qd_rpyleft, rpydd_left_des, w3);
+  AddJacobianTypeCost(J_right, Jd_qd_right, xdd_right_des, w3);
+  AddJacobianTypeCost(J_rpyright, Jd_qd_rpyright, rpydd_right_des, w3);
+  // torso orientation cost
+  const double w4 = 0;
+  AddJacobianTypeCost(J_torso, Jd_qd_torso, rpydd_torso_des, w4);
+
+  // Contact acceleration constraints
+  const double Kd_contact = 5.0;
+  const double nu_min = -1e-4;
+  const double nu_max = 1e-4;
+
+  for (int i = 0; i < num_contacts; ++i) {
+    Eigen::MatrixXd J = contact_jacobians.block(3 * i, 0, 3, num_v);
+    Eigen::VectorXd Jd_qd = contact_jacobians_dot_v.segment(3 * i, 3);
+
+    Eigen::VectorXd xd = J * state_velocity;
+    Eigen::VectorXd xdd_des = -Kd_contact * xd;
+    Eigen::VectorXd rhs = xdd_des - Jd_qd;
+
+    Eigen::VectorXd lb = rhs.array() + nu_min;
+    Eigen::VectorXd ub = rhs.array() + nu_max;
+
+    prog_.AddLinearConstraint(J, lb, ub, qdd_);
+  }
+  // Dynamic constraints
+  Eigen::MatrixXd A_dyn(M.rows(), 3 * num_v);  // [qdd, tau, JTfr]
+  A_dyn << M, -Selection_matirx, -Eigen::MatrixXd::Identity(num_v, num_v);
+
+  drake::solvers::VariableRefList vars_dyn = {
+      Eigen::Ref<const drake::solvers::VectorXDecisionVariable>(qdd_),
+      Eigen::Ref<const drake::solvers::VectorXDecisionVariable>(tau_),
+      Eigen::Ref<const drake::solvers::VectorXDecisionVariable>(JTfr_)};
+
+  prog_.AddLinearEqualityConstraint(
+      A_dyn, tau_g - Cv, drake::solvers::ConcatenateVariableRefList(vars_dyn));
+
+  // Add interface constraint S'*tau + sum(J'*f_ext) = uV + N'*tau_0
+  // Left-hand side (LHS): S^T * tau + JTfr
+  Eigen::MatrixXd A_lhs = Selection_matirx;  // size: [num_v x num_v]
+  Eigen::MatrixXd I_lhs = Eigen::MatrixXd::Identity(num_v, num_v);  // JTfr term
+
+  // Right-hand side: A_int * u2 + N^T * tau0 + b_int
+  // So move everything to the left side to make:
+  // S^T * tau + JTfr - A_int * u2 - N^T * tau0 = b_int
+
+  // Build constraint matrix: [tau, tau0, u2, JTfr]
+  int dim = num_v + num_v + 3 + num_v;
+  Eigen::MatrixXd A_iface = Eigen::MatrixXd::Zero(num_v, dim);
+
+  // Fill columns
+  A_iface.block(0, 0, num_v, num_v) = Selection_matirx;        // tau
+  A_iface.block(0, num_v, num_v, num_v) = -N_com.transpose();  // tau0
+  A_iface.block(0, 2 * num_v, num_v, 3) = -A_int;              // u2
+  A_iface.block(0, 2 * num_v + 3, num_v, num_v) = I_lhs;       // JTfr
+
+  // Build variable list
+  drake::solvers::VariableRefList vars_iface = {
+      Eigen::Ref<const drake::solvers::VectorXDecisionVariable>(tau_),
+      Eigen::Ref<const drake::solvers::VectorXDecisionVariable>(tau0_),
+      Eigen::Ref<const drake::solvers::VectorXDecisionVariable>(u2_),
+      Eigen::Ref<const drake::solvers::VectorXDecisionVariable>(JTfr_),
+  };
+
+  prog_.AddLinearEqualityConstraint(
+      A_iface, b_int, drake::solvers::ConcatenateVariableRefList(vars_iface));
 
   return Eigen::VectorXd::Zero(plant_.num_velocities());
 }

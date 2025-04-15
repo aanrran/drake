@@ -5,6 +5,8 @@
 
 #include <Eigen/Dense>
 #include <drake/multibody/plant/multibody_plant.h>
+#include <drake/solvers/mathematical_program.h>
+#include <drake/solvers/osqp_solver.h>
 #include <drake/systems/framework/context.h>
 
 namespace drake {
@@ -25,14 +27,10 @@ class QPController {
   const drake::systems::Context<double>& context_;
 
   const Eigen::VectorX<double> stiffness_, damping_ratio_;
-
-  // Contact information
-  std::vector<drake::multibody::BodyIndex> contact_bodies_;
-  std::vector<Eigen::Vector3d> contact_points_;
-
-  // System matrices and vectors
-
-  int num_joints_;
+  // QP solver
+  std::unique_ptr<drake::solvers::OsqpSolver> solver_;
+  drake::solvers::MathematicalProgram prog_;
+  drake::solvers::VectorXDecisionVariable tau_, qdd_, u2_, tau0_, JTfr_;
 
   std::vector<Eigen::Vector3d> GetFootContactPoints() const;
   MatrixX<double> ComputeNullSpaceProjection(
@@ -53,6 +51,10 @@ class QPController {
 
   Eigen::Vector3d GetRPYInWorld(
       const drake::multibody::Body<double>& body) const;
+
+  void AddJacobianTypeCost(const Eigen::MatrixXd& J,
+                           const Eigen::VectorXd& Jd_qd,
+                           const Eigen::VectorXd& xdd_des, double weight);
 };
 }  // namespace unitree_g1
 }  // namespace examples
