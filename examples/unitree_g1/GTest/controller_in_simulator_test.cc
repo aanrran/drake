@@ -43,15 +43,15 @@ int do_main() {
   AddActuatorsToPlant(plant);
 
   // ✅ 4. Set Initial Robot Pose
-  const double initial_z_offset = 0.74;
+  const double initial_z_offset = 0.84;
   plant.SetDefaultFreeBodyPose(
       plant.GetBodyByName("pelvis", model_instance),
       RigidTransformd(Eigen::Translation3d(0, 0, initial_z_offset)));
 
   // ✅ Weld pelvis at an offset of (0, 0, 0.8) in world frame
-  // plant.WeldFrames(
-  //     plant.world_frame(), plant.GetFrameByName("pelvis"),
-  //     RigidTransformd(Eigen::Translation3d(0, 0, initial_z_offset)));
+  //   plant.WeldFrames(
+  //       plant.world_frame(), plant.GetFrameByName("pelvis"),
+  //       RigidTransformd(Eigen::Translation3d(0, 0, initial_z_offset)));
 
   // ✅ 5. Add Ground Plane for Simulation
   AddGroundPlaneToPlant(plant);
