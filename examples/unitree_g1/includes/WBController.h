@@ -2,6 +2,7 @@
 #pragma once
 
 #include <memory>
+#include <string>
 
 #include <Eigen/Dense>
 #include <drake/multibody/plant/multibody_plant.h>
@@ -42,12 +43,19 @@ class WBController {
   std::pair<Eigen::VectorXd, Eigen::VectorXd> GetBodyBias(
       const drake::multibody::Frame<double>& foot_frame);
 
-  Eigen::Vector3d GetRPYInWorld(
+  std::pair<Eigen::Vector3d, Eigen::Vector3d> GetPosInWorld(
       const drake::multibody::Body<double>& body) const;
 
   Eigen::MatrixXd ComputeJacobianPseudoInv(const Eigen::MatrixXd& Jacobian,
                                            const Eigen::MatrixXd& M_inverse,
                                            const Eigen::MatrixXd& N_pre);
+  std::pair<Eigen::VectorXd, Eigen::MatrixXd> NspacePDctrl(
+      const double& Kp_task, const double& Kd_task,
+      const Eigen::MatrixXd& N_pre, const Eigen::VectorXd x_cmd,
+      const Eigen::VectorXd xd_cmd, const Eigen::VectorXd& state_qd,
+      const Eigen::VectorXd& state_qdd,
+      const drake::multibody::Body<double>& task_body,
+      const Eigen::MatrixXd& M_inverse, const std::string& task_type);
 };
 
 }  // namespace unitree_g1
