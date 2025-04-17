@@ -365,13 +365,13 @@ Eigen::VectorXd WBController::CalcTorque(Eigen::VectorXd desired_position,
   const auto& left_foot = plant_.GetBodyByName("left_ankle_roll_link");
 
   double Kp_left_foot = 1000.0;
-  double Kd_left_foot = 3.7;
+  double Kd_left_foot = 0.7;
   Eigen::VectorXd x_cmd_left_foot(6);
   x_cmd_left_foot << 0.0, 0.0, 0.04, 0.0, 0.0, 0.0;
   Eigen::VectorXd xd_cmd_left_foot(6);
   xd_cmd_left_foot << 0.0, 0.0, 0.0, 0.0, 0.0, 0.0;
 
-  auto [accel_left_foot, N_left_foot] = NspaceContactrl(
+  auto [accel_left_foot, N_left_foot] = NspacePDctrl(
       Kp_left_foot, Kd_left_foot, Ivv_, x_cmd_left_foot, xd_cmd_left_foot,
       state_qd, state_qdd, left_foot, M_inverse, "both");
 
@@ -390,7 +390,7 @@ Eigen::VectorXd WBController::CalcTorque(Eigen::VectorXd desired_position,
   const auto& torso = plant_.GetBodyByName("torso_link");
 
   double Kp_torso = 1000.0;
-  double Kd_torso = 3.7;
+  double Kd_torso = 0.7;
   Eigen::VectorXd x_cmd_torso(3);
   x_cmd_torso << 0.0, 0.0, 0.0;
   Eigen::VectorXd xd_cmd_torso(3);
@@ -400,8 +400,22 @@ Eigen::VectorXd WBController::CalcTorque(Eigen::VectorXd desired_position,
       NspacePDctrl(Kp_torso, Kd_torso, N_com, x_cmd_torso, xd_cmd_torso,
                    state_qd, accel_com, torso, M_inverse, "rpy");
 
-  return Mass_matrix * accel_com + Cv - tau_g +
-         (N_com).transpose() * tau_def_pose;
+  // Compute desired right leg acceleration
+  const auto& right_foot = plant_.GetBodyByName("right_ankle_roll_link");
+
+  double Kp_right_foot = 1000.0;
+  double Kd_right_foot = 0.7;
+  Eigen::VectorXd x_cmd_right_foot(6);
+  x_cmd_right_foot << 0.0, -0.1, 0.3, 0.0, 0.0, 0.0;
+  Eigen::VectorXd xd_cmd_right_foot(6);
+  xd_cmd_right_foot << 0.0, 0.0, 0.0, 0.0, 0.0, 0.0;
+
+  auto [accel_right_foot, N_right_foot] = NspacePDctrl(
+      Kp_right_foot, Kd_right_foot, N_torso, x_cmd_right_foot,
+      xd_cmd_right_foot, state_qd, accel_torso, right_foot, M_inverse, "both");
+
+  return Mass_matrix * accel_right_foot + Cv - tau_g +
+         (N_right_foot).transpose() * tau_def_pose;
 }
 
 }  // namespace unitree_g1
