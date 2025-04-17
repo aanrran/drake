@@ -37,32 +37,15 @@ WBController::WBController(
   //   JTfr_ = prog_.NewContinuousVariables(plant_.num_velocities(), "JTfr");
 }
 
-std::pair<Eigen::VectorXd, Eigen::MatrixXd> WBController::NspaceCoMctrl(
-    const double& Kp_task, const double& Kd_task, const Eigen::MatrixXd& N_pre,
-    const Eigen::VectorXd x_cmd, const Eigen::VectorXd xd_cmd,
-    const Eigen::VectorXd& state_qd, const Eigen::VectorXd& state_qdd,
-    const Eigen::MatrixXd& M_inverse) {
-  // Get the current CoM position
-  drake::Vector3<double> x_task =
-      plant_.CalcCenterOfMassPositionInWorld(context_);
-  // Resize Jacobian explicitly
-  Eigen::MatrixXd J_task(3, num_q_);
-  plant_.CalcJacobianCenterOfMassTranslationalVelocity(
-      context_, drake::multibody::JacobianWrtVariable::kV, plant_.world_frame(),
-      plant_.world_frame(), &J_task);
-
-  // Compute the bias acceleration (Coriolis and centrifugal effects)
-  const drake::multibody::SpatialAcceleration<double> com_spacial_bias =
-      plant_.CalcBiasSpatialAcceleration(
-          context_,
-          drake::multibody::JacobianWrtVariable::kV,  // ✅ Use kV
-          plant_.world_frame(),                       // Measured frame
-          x_task,                // Point of interest (CoM position)
-          plant_.world_frame(),  // Expressed in world frame
-          plant_.world_frame()   // Measured relative to world
-      );
-  const auto Jd_qd_task = com_spacial_bias.translational();
-
+// Shared helper function for task-space PD computation with velocity-projected
+// foot target
+std::pair<Eigen::VectorXd, Eigen::MatrixXd> WBController::ComputeTaskSpaceAccel(
+    const Eigen::MatrixXd& J_task, const Eigen::VectorXd& x_task,
+    const Eigen::VectorXd& x_cmd, const Eigen::VectorXd& xd_cmd,
+    const Eigen::VectorXd& Jd_qd_task, const Eigen::VectorXd& state_qd,
+    const Eigen::VectorXd& state_qdd, const Eigen::MatrixXd& M_inverse,
+    const Eigen::MatrixXd& N_pre, const double& Kp_task,
+    const double& Kd_task) {
   // Compute the pseudo-inverse of the Jacobian
   Eigen::MatrixXd J_dyn_pinv =
       ComputeJacobianPseudoInv(J_task, M_inverse, N_pre);
@@ -93,14 +76,38 @@ std::pair<Eigen::VectorXd, Eigen::MatrixXd> WBController::NspaceCoMctrl(
   Eigen::VectorXd accel_task =
       state_qdd + J_dyn_pinv * (xdd_des - Jd_qd_task - J_task * state_qdd);
 
-  //   std::cout << "x_task: " << x_task.transpose() << std::endl;
-  //   std::cout << "xd_task: " << xd_task.transpose() << std::endl;
-  //   std::cout << "J_task: " << J_task << std::endl;
-  //   std::cout << "Jd_qd_task: " << Jd_qd_task << std::endl;
-  //   std::cout << "xdd_des: " << xdd_des.transpose() << std::endl;
-  //   std::cout << "accel_task: " << accel_task.transpose() << std::endl;
-
   return std::make_pair(accel_task, N_pre * N_task);
+}
+
+std::pair<Eigen::VectorXd, Eigen::MatrixXd> WBController::NspaceCoMctrl(
+    const double& Kp_task, const double& Kd_task, const Eigen::MatrixXd& N_pre,
+    const Eigen::VectorXd x_cmd, const Eigen::VectorXd xd_cmd,
+    const Eigen::VectorXd& state_qd, const Eigen::VectorXd& state_qdd,
+    const Eigen::MatrixXd& M_inverse) {
+  // Get the current CoM position
+  drake::Vector3<double> x_task =
+      plant_.CalcCenterOfMassPositionInWorld(context_);
+  // Resize Jacobian explicitly
+  Eigen::MatrixXd J_task(3, num_q_);
+  plant_.CalcJacobianCenterOfMassTranslationalVelocity(
+      context_, drake::multibody::JacobianWrtVariable::kV, plant_.world_frame(),
+      plant_.world_frame(), &J_task);
+
+  // Compute the bias acceleration (Coriolis and centrifugal effects)
+  const drake::multibody::SpatialAcceleration<double> com_spacial_bias =
+      plant_.CalcBiasSpatialAcceleration(
+          context_,
+          drake::multibody::JacobianWrtVariable::kV,  // ✅ Use kV
+          plant_.world_frame(),                       // Measured frame
+          x_task,                // Point of interest (CoM position)
+          plant_.world_frame(),  // Expressed in world frame
+          plant_.world_frame()   // Measured relative to world
+      );
+  const auto Jd_qd_task = com_spacial_bias.translational();
+
+  return ComputeTaskSpaceAccel(J_task, x_task, x_cmd, xd_cmd, Jd_qd_task,
+                               state_qd, state_qdd, M_inverse, N_pre, Kp_task,
+                               Kd_task);
 }
 
 std::pair<Eigen::VectorXd, Eigen::MatrixXd> WBController::NspaceContactrl(
@@ -185,36 +192,9 @@ std::pair<Eigen::VectorXd, Eigen::MatrixXd> WBController::NspaceContactrl(
   Eigen::VectorXd x_cmd_full(6);
   x_cmd_full.head(3) = x_cmd_trans;
   x_cmd_full.tail(3) = x_cmd.tail(3);
-  // PD Controller
-  // 1. Compute Lambda_inv
-  Eigen::MatrixXd Lambda_inv = J_task * M_inverse * J_task.transpose();
-  Lambda_inv.diagonal().array() += 1e-6;  // regularization
-
-  // 2. Approximate Lambda using diagonal inverse
-  Eigen::VectorXd Lambda_diag_inv = Lambda_inv.diagonal();
-  Eigen::VectorXd Lambda_diag = Lambda_diag_inv.cwiseInverse();
-
-  // 3. Fast critical damping: D_task = 2 * sqrt(Lambda * Kp)
-  Eigen::VectorXd D_diag =
-      2.0 * Lambda_diag.array().sqrt() * std::sqrt(Kp_task);
-
-  // 4. Task-space desired acceleration
-  Eigen::VectorXd xdd_des =
-      Lambda_inv * (Kp_task * (x_cmd_full - x_task) +
-                    D_diag.asDiagonal() * (xd_cmd - xd_task));
-
-  // Compute desired acceleration
-  Eigen::VectorXd accel_task =
-      state_qdd + J_dyn_pinv * (xdd_des - Jd_qd_task - J_task * state_qdd);
-
-  //   std::cout << "x_task: " << x_task.transpose() << std::endl;
-  //   std::cout << "xd_task: " << xd_task.transpose() << std::endl;
-  //   std::cout << "J_task: " << J_task << std::endl;
-  //   std::cout << "Jd_qd_task: " << Jd_qd_task << std::endl;
-  //   std::cout << "xdd_des: " << xdd_des.transpose() << std::endl;
-  //   std::cout << "accel_task: " << accel_task.transpose() << std::endl;
-
-  return std::make_pair(accel_task, N_pre * N_task);
+  return ComputeTaskSpaceAccel(J_task, x_task, x_cmd_full, xd_cmd, Jd_qd_task,
+                               state_qd, state_qdd, M_inverse, N_pre, Kp_task,
+                               Kd_task);
 }
 
 std::pair<Eigen::VectorXd, Eigen::MatrixXd> WBController::NspacePDctrl(
@@ -260,44 +240,9 @@ std::pair<Eigen::VectorXd, Eigen::MatrixXd> WBController::NspacePDctrl(
     throw std::runtime_error("Invalid task type");
   }
 
-  // Compute the pseudo-inverse of the Jacobian
-  Eigen::MatrixXd J_dyn_pinv =
-      ComputeJacobianPseudoInv(J_task, M_inverse, N_pre);
-
-  // Compute null-space projection in actuator subspace
-  Eigen::MatrixXd N_task = Ivv_ - J_dyn_pinv * J_task;
-  // Compute the desired acceleration for the task
-  Eigen::VectorXd xd_task = J_task * state_qd;
-  // PD Controller
-  // 1. Compute Lambda_inv
-  Eigen::MatrixXd Lambda_inv = J_task * M_inverse * J_task.transpose();
-  Lambda_inv.diagonal().array() += 1e-6;  // regularization
-
-  // 2. Approximate Lambda using diagonal inverse
-  Eigen::VectorXd Lambda_diag_inv = Lambda_inv.diagonal();
-  Eigen::VectorXd Lambda_diag = Lambda_diag_inv.cwiseInverse();
-
-  // 3. Fast critical damping: D_task = 2 * sqrt(Lambda * Kp)
-  Eigen::VectorXd D_diag =
-      2.0 * Lambda_diag.array().sqrt() * std::sqrt(Kp_task);
-
-  // 4. Task-space desired acceleration
-  Eigen::VectorXd xdd_des =
-      Lambda_inv *
-      (Kp_task * (x_cmd - x_task) + D_diag.asDiagonal() * (xd_cmd - xd_task));
-
-  // Compute desired acceleration
-  Eigen::VectorXd accel_task =
-      state_qdd + J_dyn_pinv * (xdd_des - Jd_qd_task - J_task * state_qdd);
-
-  //   std::cout << "x_task: " << x_task.transpose() << std::endl;
-  //   std::cout << "xd_task: " << xd_task.transpose() << std::endl;
-  //   std::cout << "J_task: " << J_task << std::endl;
-  //   std::cout << "Jd_qd_task: " << Jd_qd_task << std::endl;
-  //   std::cout << "xdd_des: " << xdd_des.transpose() << std::endl;
-  //   std::cout << "accel_task: " << accel_task.transpose() << std::endl;
-
-  return std::make_pair(accel_task, N_pre * N_task);
+  return ComputeTaskSpaceAccel(J_task, x_task, x_cmd, xd_cmd, Jd_qd_task,
+                               state_qd, state_qdd, M_inverse, N_pre, Kp_task,
+                               Kd_task);
 }
 
 std::pair<Eigen::MatrixXd, Eigen::MatrixXd> WBController::GetBodyJacobian(

@@ -50,6 +50,14 @@ class WBController {
                                            const Eigen::MatrixXd& M_inverse,
                                            const Eigen::MatrixXd& N_pre);
 
+  std::pair<Eigen::VectorXd, Eigen::MatrixXd> ComputeTaskSpaceAccel(
+      const Eigen::MatrixXd& J_task, const Eigen::VectorXd& x_task,
+      const Eigen::VectorXd& x_cmd, const Eigen::VectorXd& xd_cmd,
+      const Eigen::VectorXd& Jd_qd_task, const Eigen::VectorXd& state_qd,
+      const Eigen::VectorXd& state_qdd, const Eigen::MatrixXd& M_inverse,
+      const Eigen::MatrixXd& N_pre, const double& Kp_task,
+      const double& Kd_task);
+
   std::pair<Eigen::VectorXd, Eigen::MatrixXd> NspacePDctrl(
       const double& Kp_task, const double& Kd_task,
       const Eigen::MatrixXd& N_pre, const Eigen::VectorXd x_cmd,
