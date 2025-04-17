@@ -49,7 +49,16 @@ class WBController {
   Eigen::MatrixXd ComputeJacobianPseudoInv(const Eigen::MatrixXd& Jacobian,
                                            const Eigen::MatrixXd& M_inverse,
                                            const Eigen::MatrixXd& N_pre);
+
   std::pair<Eigen::VectorXd, Eigen::MatrixXd> NspacePDctrl(
+      const double& Kp_task, const double& Kd_task,
+      const Eigen::MatrixXd& N_pre, const Eigen::VectorXd x_cmd,
+      const Eigen::VectorXd xd_cmd, const Eigen::VectorXd& state_qd,
+      const Eigen::VectorXd& state_qdd,
+      const drake::multibody::Body<double>& task_body,
+      const Eigen::MatrixXd& M_inverse, const std::string& task_type);
+
+  std::pair<Eigen::VectorXd, Eigen::MatrixXd> NspaceContactrl(
       const double& Kp_task, const double& Kd_task,
       const Eigen::MatrixXd& N_pre, const Eigen::VectorXd x_cmd,
       const Eigen::VectorXd xd_cmd, const Eigen::VectorXd& state_qd,

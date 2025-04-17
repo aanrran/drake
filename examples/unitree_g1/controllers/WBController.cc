@@ -103,6 +103,120 @@ std::pair<Eigen::VectorXd, Eigen::MatrixXd> WBController::NspaceCoMctrl(
   return std::make_pair(accel_task, N_pre * N_task);
 }
 
+std::pair<Eigen::VectorXd, Eigen::MatrixXd> WBController::NspaceContactrl(
+    const double& Kp_task, const double& Kd_task, const Eigen::MatrixXd& N_pre,
+    const Eigen::VectorXd x_cmd, const Eigen::VectorXd xd_cmd,
+    const Eigen::VectorXd& state_qd, const Eigen::VectorXd& state_qdd,
+    const drake::multibody::Body<double>& task_body,
+    const Eigen::MatrixXd& M_inverse, const std::string& task_type) {
+  // Compute the Jacobian
+  auto [J_trans, J_rpy] = GetBodyJacobian(task_body.body_frame());
+  // Compute the bias acceleration for the right foot
+  auto [Jd_qd_trans, Jd_qd_rpy] = GetBodyBias(task_body.body_frame());
+  // Compute the position of the task body in world frame
+  auto [x_trans, x_rpy] = GetPosInWorld(task_body);
+  // Compute the positions and Jacobians based on task type
+  Eigen::VectorXd x_task;
+  Eigen::MatrixXd J_task, Jd_qd_task;
+  if (task_type == "trans") {
+    x_task = x_trans;
+    J_task = J_trans;
+    Jd_qd_task = Jd_qd_trans;
+  } else if (task_type == "rpy") {
+    x_task = x_rpy;
+    J_task = J_rpy;
+    Jd_qd_task = Jd_qd_rpy;
+  } else if (task_type == "both") {
+    DRAKE_DEMAND(x_trans.size() == 3 && x_rpy.size() == 3);
+    DRAKE_DEMAND(J_trans.rows() == 3 && J_rpy.rows() == 3);
+    DRAKE_DEMAND(J_trans.cols() == num_q_ && J_rpy.cols() == num_q_);
+
+    x_task.resize(6);
+    x_task.head(3) = x_trans;
+    x_task.tail(3) = x_rpy;
+
+    J_task.resize(6, num_q_);
+    J_task.topRows(3) = J_trans;
+    J_task.bottomRows(3) = J_rpy;
+
+    Jd_qd_task.resize(6, num_q_);
+    Jd_qd_task.topRows(3) = Jd_qd_trans;
+    Jd_qd_task.bottomRows(3) = Jd_qd_rpy;
+  } else {
+    throw std::runtime_error("Invalid task type");
+  }
+
+  // Compute the pseudo-inverse of the Jacobian
+  Eigen::MatrixXd J_dyn_pinv =
+      ComputeJacobianPseudoInv(J_task, M_inverse, N_pre);
+
+  // Compute null-space projection in actuator subspace
+  Eigen::MatrixXd N_task = Ivv_ - J_dyn_pinv * J_task;
+  // Compute the desired acceleration for the task
+  Eigen::VectorXd xd_task = J_task * state_qd;
+
+  // === Foot Command Calculation with Directional Velocity Projection ===
+  // Define foot position goal
+  Eigen::Vector3d x_goal = x_cmd.head(3);
+  // Compute directional projection
+  Eigen::Vector3d x_delta = x_goal - x_trans;
+  double x_delta_norm = x_delta.norm();
+  Eigen::Vector3d x_cmd_trans;
+
+  if (x_delta_norm > 1e-4) {
+    Eigen::Vector3d x_delta_hat = x_delta / x_delta_norm;
+
+    // Project velocity onto direction to goal
+    double v_along_goal = x_delta_hat.dot(xd_task);
+    Eigen::Vector3d v_proj = v_along_goal * x_delta_hat;
+
+    // Bias command forward using velocity projection
+    double alpha = 0.05;  // scaling factor
+    x_cmd_trans = x_trans + alpha * v_proj;
+
+    // Optional: Clip near goal to avoid oscillation
+    if ((x_cmd_trans - x_goal).norm() < 0.002) {
+      x_cmd_trans = x_goal;
+    }
+  } else {
+    // Close enough to goal, stop moving
+    x_cmd_trans = x_goal;
+  }
+  Eigen::VectorXd x_cmd_full(6);
+  x_cmd_full.head(3) = x_cmd_trans;
+  x_cmd_full.tail(3) = x_cmd.tail(3);
+  // PD Controller
+  // 1. Compute Lambda_inv
+  Eigen::MatrixXd Lambda_inv = J_task * M_inverse * J_task.transpose();
+  Lambda_inv.diagonal().array() += 1e-6;  // regularization
+
+  // 2. Approximate Lambda using diagonal inverse
+  Eigen::VectorXd Lambda_diag_inv = Lambda_inv.diagonal();
+  Eigen::VectorXd Lambda_diag = Lambda_diag_inv.cwiseInverse();
+
+  // 3. Fast critical damping: D_task = 2 * sqrt(Lambda * Kp)
+  Eigen::VectorXd D_diag =
+      2.0 * Lambda_diag.array().sqrt() * std::sqrt(Kp_task);
+
+  // 4. Task-space desired acceleration
+  Eigen::VectorXd xdd_des =
+      Lambda_inv * (Kp_task * (x_cmd_full - x_task) +
+                    D_diag.asDiagonal() * (xd_cmd - xd_task));
+
+  // Compute desired acceleration
+  Eigen::VectorXd accel_task =
+      state_qdd + J_dyn_pinv * (xdd_des - Jd_qd_task - J_task * state_qdd);
+
+  //   std::cout << "x_task: " << x_task.transpose() << std::endl;
+  //   std::cout << "xd_task: " << xd_task.transpose() << std::endl;
+  //   std::cout << "J_task: " << J_task << std::endl;
+  //   std::cout << "Jd_qd_task: " << Jd_qd_task << std::endl;
+  //   std::cout << "xdd_des: " << xdd_des.transpose() << std::endl;
+  //   std::cout << "accel_task: " << accel_task.transpose() << std::endl;
+
+  return std::make_pair(accel_task, N_pre * N_task);
+}
+
 std::pair<Eigen::VectorXd, Eigen::MatrixXd> WBController::NspacePDctrl(
     const double& Kp_task, const double& Kd_task, const Eigen::MatrixXd& N_pre,
     const Eigen::VectorXd x_cmd, const Eigen::VectorXd xd_cmd,
@@ -302,25 +416,25 @@ Eigen::VectorXd WBController::CalcTorque(Eigen::VectorXd desired_position,
 
   Eigen::VectorXd tau_def_pose = u_stiffness.tail(num_q_) + u_damping;
 
-  // Compute desired foot acceleration
+  // Compute the desired acceleration for the task
   const auto& left_foot = plant_.GetBodyByName("left_ankle_roll_link");
 
   double Kp_left_foot = 1000.0;
-  double Kd_left_foot = 0.7;
+  double Kd_left_foot = 3.7;
   Eigen::VectorXd x_cmd_left_foot(6);
   x_cmd_left_foot << 0.0, 0.0, 0.04, 0.0, 0.0, 0.0;
   Eigen::VectorXd xd_cmd_left_foot(6);
   xd_cmd_left_foot << 0.0, 0.0, 0.0, 0.0, 0.0, 0.0;
 
-  auto [accel_left_foot, N_left_foot] = NspacePDctrl(
+  auto [accel_left_foot, N_left_foot] = NspaceContactrl(
       Kp_left_foot, Kd_left_foot, Ivv_, x_cmd_left_foot, xd_cmd_left_foot,
       state_qd, state_qdd, left_foot, M_inverse, "both");
 
   // Compute desired CoM acceleration
-  double Kp_com = 1000.0;
-  double Kd_com = 0.7;
+  double Kp_com = 2000.0;
+  double Kd_com = 3.7;
   Eigen::VectorXd x_cmd_com(3);
-  x_cmd_com << 0.0, 0.0, 0.7;
+  x_cmd_com << 0.0, 0.05, 0.5;
   Eigen::VectorXd xd_cmd_com(3);
   xd_cmd_com << 0.0, 0.0, 0.0;
   auto [accel_com, N_com] =
@@ -331,7 +445,7 @@ Eigen::VectorXd WBController::CalcTorque(Eigen::VectorXd desired_position,
   const auto& torso = plant_.GetBodyByName("torso_link");
 
   double Kp_torso = 1000.0;
-  double Kd_torso = 0.7;
+  double Kd_torso = 3.7;
   Eigen::VectorXd x_cmd_torso(3);
   x_cmd_torso << 0.0, 0.0, 0.0;
   Eigen::VectorXd xd_cmd_torso(3);
