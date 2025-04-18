@@ -49,9 +49,9 @@ int do_main() {
       RigidTransformd(Eigen::Translation3d(0, 0, initial_z_offset)));
 
   // ✅ Weld pelvis at an offset of (0, 0, 0.8) in world frame
-  //   plant.WeldFrames(
-  //       plant.world_frame(), plant.GetFrameByName("pelvis"),
-  //       RigidTransformd(Eigen::Translation3d(0, 0, initial_z_offset)));
+  plant.WeldFrames(
+      plant.world_frame(), plant.GetFrameByName("pelvis"),
+      RigidTransformd(Eigen::Translation3d(0, 0, initial_z_offset)));
 
   // ✅ 5. Add Ground Plane for Simulation
   AddGroundPlaneToPlant(plant);

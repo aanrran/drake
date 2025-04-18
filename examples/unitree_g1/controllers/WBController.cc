@@ -367,7 +367,7 @@ Eigen::VectorXd WBController::CalcTorque(Eigen::VectorXd desired_position,
   double Kp_left_foot = 1000.0;
   double Kd_left_foot = 0.7;
   Eigen::VectorXd x_cmd_left_foot(6);
-  x_cmd_left_foot << 0.0, 0.0, 0.04, 0.0, 0.0, 0.0;
+  x_cmd_left_foot << 0.0, 0.1, 0.3, 0.0, 0.0, 0.0;
   Eigen::VectorXd xd_cmd_left_foot(6);
   xd_cmd_left_foot << 0.0, 0.0, 0.0, 0.0, 0.0, 0.0;
 
@@ -375,16 +375,16 @@ Eigen::VectorXd WBController::CalcTorque(Eigen::VectorXd desired_position,
       Kp_left_foot, Kd_left_foot, Ivv_, x_cmd_left_foot, xd_cmd_left_foot,
       state_qd, state_qdd, left_foot, M_inverse, "both");
 
-  // Compute desired CoM acceleration
-  double Kp_com = 2000.0;
-  double Kd_com = 3.7;
-  Eigen::VectorXd x_cmd_com(3);
-  x_cmd_com << 0.0, 0.05, 0.5;
-  Eigen::VectorXd xd_cmd_com(3);
-  xd_cmd_com << 0.0, 0.0, 0.0;
-  auto [accel_com, N_com] =
-      NspaceCoMctrl(Kp_com, Kd_com, N_left_foot, x_cmd_com, xd_cmd_com,
-                    state_qd, accel_left_foot, M_inverse);
+  // // Compute desired CoM acceleration
+  // double Kp_com = 2000.0;
+  // double Kd_com = 3.7;
+  // Eigen::VectorXd x_cmd_com(3);
+  // x_cmd_com << 0.0, 0.05, 0.5;
+  // Eigen::VectorXd xd_cmd_com(3);
+  // xd_cmd_com << 0.0, 0.0, 0.0;
+  // auto [accel_com, N_com] =
+  //     NspaceCoMctrl(Kp_com, Kd_com, N_left_foot, x_cmd_com, xd_cmd_com,
+  //                   state_qd, accel_left_foot, M_inverse);
 
   // Compute desired torso acceleration
   const auto& torso = plant_.GetBodyByName("torso_link");
@@ -392,13 +392,13 @@ Eigen::VectorXd WBController::CalcTorque(Eigen::VectorXd desired_position,
   double Kp_torso = 1000.0;
   double Kd_torso = 0.7;
   Eigen::VectorXd x_cmd_torso(3);
-  x_cmd_torso << 0.0, 0.0, 0.0;
+  x_cmd_torso << 0.0, 0.0, 3.14 * 0.5;
   Eigen::VectorXd xd_cmd_torso(3);
   xd_cmd_torso << 0.0, 0.0, 0.0;
 
   auto [accel_torso, N_torso] =
-      NspacePDctrl(Kp_torso, Kd_torso, N_com, x_cmd_torso, xd_cmd_torso,
-                   state_qd, accel_com, torso, M_inverse, "rpy");
+      NspacePDctrl(Kp_torso, Kd_torso, N_left_foot, x_cmd_torso, xd_cmd_torso,
+                   state_qd, accel_left_foot, torso, M_inverse, "rpy");
 
   // Compute desired right leg acceleration
   const auto& right_foot = plant_.GetBodyByName("right_ankle_roll_link");
