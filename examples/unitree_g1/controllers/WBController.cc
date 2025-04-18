@@ -353,22 +353,7 @@ Eigen::VectorXd WBController::CalcTorque(Eigen::VectorXd desired_position,
   DRAKE_DEMAND(llt.info() == Eigen::Success);
   Eigen::MatrixXd M_inverse = llt.solve(Ivv_);
 
-  // **Compute stiffness torque**
-  Eigen::VectorXd position_error = desired_position - state_pos;
-  Eigen::VectorXd u_stiffness =
-      (stiffness_.array() * position_error.array()).matrix();
-
-  // Compute damping torque
-  // Compute critical damping gains and scale by damping ratio. Use Eigen
-  // arrays (rather than matrices) for elementwise multiplication.
-  Eigen::ArrayXd temp = Mass_matrix.diagonal().array() * stiffness_.array();
-  Eigen::ArrayXd damping_gains = 2 * temp.sqrt();
-  damping_gains *= damping_ratio_.array();
-  Eigen::VectorXd u_damping = -(damping_gains * state_qd.array()).matrix();
-
-  Eigen::VectorXd tau_def_pose = u_stiffness.tail(num_q_) + u_damping;
-
-  // Compute the desired acceleration for the task
+  // Compute the desired acceleration for supporting foot task
   const auto& left_foot = plant_.GetBodyByName("left_ankle_roll_link");
 
   double Kp_left_foot = 50.0;
@@ -421,10 +406,23 @@ Eigen::VectorXd WBController::CalcTorque(Eigen::VectorXd desired_position,
       Kp_right_foot, Kd_right_foot, N_torso, x_cmd_right_foot,
       xd_cmd_right_foot, qd_torso, qdd_torso, right_foot, M_inverse, "both");
 
+  // Comput the default pose acceleration
+  double Kp_pose = 10.5;
+  double Kd_pose = 0.7;
+  Eigen::MatrixXd J_pose = Selection_matirx;
+  Eigen::VectorXd x_pose = state_pos.tail(num_q_);
+  Eigen::VectorXd x_pose_cmd = desired_position.head(num_q_);
+  Eigen::VectorXd xd_pose_cmd = Eigen::VectorXd::Zero(num_q_);
+  Eigen::VectorXd Jd_qd_pose = Eigen::VectorXd::Zero(num_q_);
+  Eigen::MatrixXd N_pose_pre = Ivv_;
+  auto [qd_pose, qdd_pose, N_pose] = ComputeTaskSpaceAccel(
+      J_pose, x_pose, x_pose_cmd, xd_pose_cmd, Jd_qd_pose, state_qd, state_qdd,
+      M_inverse, N_pose_pre, Kp_pose, Kd_pose);
   //   return Mass_matrix * qdd_right_foot + Cv - tau_g +
   //          (N_right_foot).transpose() * tau_def_pose;
-  return Mass_matrix * qdd_com + Cv - tau_g +
-         (N_com).transpose() * tau_def_pose;
+  //   return Mass_matrix * qdd_com + Cv - tau_g +
+  //          (N_com).transpose() * tau_def_pose;
+  return Mass_matrix * qdd_pose;
 }
 
 }  // namespace unitree_g1
