@@ -39,7 +39,8 @@ WBController::WBController(
 
 // Shared helper function for task-space PD computation with velocity-projected
 // foot target
-std::pair<Eigen::VectorXd, Eigen::MatrixXd> WBController::ComputeTaskSpaceAccel(
+std::tuple<Eigen::VectorXd, Eigen::VectorXd, Eigen::MatrixXd>
+WBController::ComputeTaskSpaceAccel(
     const Eigen::MatrixXd& J_task, const Eigen::VectorXd& x_task,
     const Eigen::VectorXd& x_cmd, const Eigen::VectorXd& xd_cmd,
     const Eigen::VectorXd& Jd_qd_task, const Eigen::VectorXd& state_qd,
@@ -71,19 +72,23 @@ std::pair<Eigen::VectorXd, Eigen::MatrixXd> WBController::ComputeTaskSpaceAccel(
   Eigen::VectorXd xdd_des =
       Lambda_inv *
       (Kp_task * (x_cmd - x_task) + D_diag.asDiagonal() * (xd_cmd - xd_task));
-
+  // Compute the task-space Velocity
+  Eigen::VectorXd qd_task = N_task * state_qd;
   // Compute desired acceleration
-  Eigen::VectorXd accel_task =
+  Eigen::VectorXd qdd_task =
       state_qdd + J_dyn_pinv * (xdd_des - Jd_qd_task - J_task * state_qdd);
 
-  return std::make_pair(accel_task, N_pre * N_task);
+  return std::make_tuple(qd_task, qdd_task, N_pre * N_task);
 }
 
-std::pair<Eigen::VectorXd, Eigen::MatrixXd> WBController::NspaceCoMctrl(
-    const double& Kp_task, const double& Kd_task, const Eigen::MatrixXd& N_pre,
-    const Eigen::VectorXd x_cmd, const Eigen::VectorXd xd_cmd,
-    const Eigen::VectorXd& state_qd, const Eigen::VectorXd& state_qdd,
-    const Eigen::MatrixXd& M_inverse) {
+std::tuple<Eigen::VectorXd, Eigen::VectorXd, Eigen::MatrixXd>
+WBController::NspaceCoMctrl(const double& Kp_task, const double& Kd_task,
+                            const Eigen::MatrixXd& N_pre,
+                            const Eigen::VectorXd x_cmd,
+                            const Eigen::VectorXd xd_cmd,
+                            const Eigen::VectorXd& state_qd,
+                            const Eigen::VectorXd& state_qdd,
+                            const Eigen::MatrixXd& M_inverse) {
   // Get the current CoM position
   drake::Vector3<double> x_task =
       plant_.CalcCenterOfMassPositionInWorld(context_);
@@ -110,7 +115,8 @@ std::pair<Eigen::VectorXd, Eigen::MatrixXd> WBController::NspaceCoMctrl(
                                Kd_task);
 }
 
-std::pair<Eigen::VectorXd, Eigen::MatrixXd> WBController::NspaceContactrl(
+std::tuple<Eigen::VectorXd, Eigen::VectorXd, Eigen::MatrixXd>
+WBController::NspaceContactrl(
     const double& Kp_task, const double& Kd_task, const Eigen::MatrixXd& N_pre,
     const Eigen::VectorXd x_cmd, const Eigen::VectorXd xd_cmd,
     const Eigen::VectorXd& state_qd, const Eigen::VectorXd& state_qdd,
@@ -197,7 +203,8 @@ std::pair<Eigen::VectorXd, Eigen::MatrixXd> WBController::NspaceContactrl(
                                Kd_task);
 }
 
-std::pair<Eigen::VectorXd, Eigen::MatrixXd> WBController::NspacePDctrl(
+std::tuple<Eigen::VectorXd, Eigen::VectorXd, Eigen::MatrixXd>
+WBController::NspacePDctrl(
     const double& Kp_task, const double& Kd_task, const Eigen::MatrixXd& N_pre,
     const Eigen::VectorXd x_cmd, const Eigen::VectorXd xd_cmd,
     const Eigen::VectorXd& state_qd, const Eigen::VectorXd& state_qdd,
@@ -371,7 +378,7 @@ Eigen::VectorXd WBController::CalcTorque(Eigen::VectorXd desired_position,
   Eigen::VectorXd xd_cmd_left_foot(6);
   xd_cmd_left_foot << 0.0, 0.0, 0.0, 0.0, 0.0, 0.0;
 
-  auto [accel_left_foot, N_left_foot] = NspacePDctrl(
+  auto [qd_left_foot, qdd_left_foot, N_left_foot] = NspacePDctrl(
       Kp_left_foot, Kd_left_foot, Ivv_, x_cmd_left_foot, xd_cmd_left_foot,
       state_qd, state_qdd, left_foot, M_inverse, "both");
 
@@ -382,9 +389,9 @@ Eigen::VectorXd WBController::CalcTorque(Eigen::VectorXd desired_position,
   // x_cmd_com << 0.0, 0.05, 0.5;
   // Eigen::VectorXd xd_cmd_com(3);
   // xd_cmd_com << 0.0, 0.0, 0.0;
-  // auto [accel_com, N_com] =
+  // auto [qd_com, qdd_com, N_com] =
   //     NspaceCoMctrl(Kp_com, Kd_com, N_left_foot, x_cmd_com, xd_cmd_com,
-  //                   state_qd, accel_left_foot, M_inverse);
+  //                   state_qd, qdd_left_foot, M_inverse);
 
   // Compute desired torso acceleration
   const auto& torso = plant_.GetBodyByName("torso_link");
@@ -396,9 +403,9 @@ Eigen::VectorXd WBController::CalcTorque(Eigen::VectorXd desired_position,
   Eigen::VectorXd xd_cmd_torso(3);
   xd_cmd_torso << 0.0, 0.0, 0.0;
 
-  auto [accel_torso, N_torso] =
+  auto [qd_torso, qdd_torso, N_torso] =
       NspacePDctrl(Kp_torso, Kd_torso, N_left_foot, x_cmd_torso, xd_cmd_torso,
-                   state_qd, accel_left_foot, torso, M_inverse, "rpy");
+                   state_qd, qdd_left_foot, torso, M_inverse, "rpy");
 
   // Compute desired right leg acceleration
   const auto& right_foot = plant_.GetBodyByName("right_ankle_roll_link");
@@ -410,11 +417,11 @@ Eigen::VectorXd WBController::CalcTorque(Eigen::VectorXd desired_position,
   Eigen::VectorXd xd_cmd_right_foot(6);
   xd_cmd_right_foot << 0.0, 0.0, 0.0, 0.0, 0.0, 0.0;
 
-  auto [accel_right_foot, N_right_foot] = NspacePDctrl(
+  auto [qd_right_foot, qdd_right_foot, N_right_foot] = NspacePDctrl(
       Kp_right_foot, Kd_right_foot, N_torso, x_cmd_right_foot,
-      xd_cmd_right_foot, state_qd, accel_torso, right_foot, M_inverse, "both");
+      xd_cmd_right_foot, state_qd, qdd_torso, right_foot, M_inverse, "both");
 
-  return Mass_matrix * accel_right_foot + Cv - tau_g +
+  return Mass_matrix * qdd_right_foot + Cv - tau_g +
          (N_right_foot).transpose() * tau_def_pose;
 }
 
