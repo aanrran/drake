@@ -50,7 +50,8 @@ class WBController {
                                            const Eigen::MatrixXd& M_inverse,
                                            const Eigen::MatrixXd& N_pre);
 
-  std::pair<Eigen::VectorXd, Eigen::MatrixXd> ComputeTaskSpaceAccel(
+  std::tuple<Eigen::VectorXd, Eigen::VectorXd, Eigen::MatrixXd>
+  ComputeTaskSpaceAccel(
       const Eigen::MatrixXd& J_task, const Eigen::VectorXd& x_task,
       const Eigen::VectorXd& x_cmd, const Eigen::VectorXd& xd_cmd,
       const Eigen::VectorXd& Jd_qd_task, const Eigen::VectorXd& state_qd,
@@ -58,7 +59,7 @@ class WBController {
       const Eigen::MatrixXd& N_pre, const double& Kp_task,
       const double& Kd_task);
 
-  std::pair<Eigen::VectorXd, Eigen::MatrixXd> NspacePDctrl(
+  std::tuple<Eigen::VectorXd, Eigen::VectorXd, Eigen::MatrixXd> NspacePDctrl(
       const double& Kp_task, const double& Kd_task,
       const Eigen::MatrixXd& N_pre, const Eigen::VectorXd x_cmd,
       const Eigen::VectorXd xd_cmd, const Eigen::VectorXd& state_qd,
@@ -66,7 +67,7 @@ class WBController {
       const drake::multibody::Body<double>& task_body,
       const Eigen::MatrixXd& M_inverse, const std::string& task_type);
 
-  std::pair<Eigen::VectorXd, Eigen::MatrixXd> NspaceContactrl(
+  std::tuple<Eigen::VectorXd, Eigen::VectorXd, Eigen::MatrixXd> NspaceContactrl(
       const double& Kp_task, const double& Kd_task,
       const Eigen::MatrixXd& N_pre, const Eigen::VectorXd x_cmd,
       const Eigen::VectorXd xd_cmd, const Eigen::VectorXd& state_qd,
@@ -74,7 +75,7 @@ class WBController {
       const drake::multibody::Body<double>& task_body,
       const Eigen::MatrixXd& M_inverse, const std::string& task_type);
 
-  std::pair<Eigen::VectorXd, Eigen::MatrixXd> NspaceCoMctrl(
+  std::tuple<Eigen::VectorXd, Eigen::VectorXd, Eigen::MatrixXd> NspaceCoMctrl(
       const double& Kp_task, const double& Kd_task,
       const Eigen::MatrixXd& N_pre, const Eigen::VectorXd x_cmd,
       const Eigen::VectorXd xd_cmd, const Eigen::VectorXd& state_qd,
