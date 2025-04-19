@@ -29,6 +29,10 @@ WBController::WBController(
   Iqq_ = Eigen::MatrixXd::Identity(num_q_, num_q_);
   Iaa_ = Eigen::MatrixXd::Identity(num_a_, num_a_);
 
+  // Extract the actuation matrix from the plant (B matrix).
+  S_float_ = Eigen::MatrixXd::Zero(num_q_, num_q_);
+  S_float_.bottomRightCorner(num_a_, num_a_) = Iaa_;
+
   tau_g_ = Eigen::VectorXd::Zero(num_q_);
   bv_ = Eigen::VectorXd::Zero(num_q_);
   M_ = Eigen::MatrixXd::Zero(num_q_, num_q_);
@@ -256,6 +260,40 @@ WBController::NspacePDctrl(const double& Kp_task, const double& Kd_task,
                                state_qd, state_qdd, N_pre, Kp_task, Kd_task);
 }
 
+std::tuple<Eigen::VectorXd, Eigen::VectorXd, Eigen::MatrixXd>
+WBController::NspacePoseCtrl(
+    const Eigen::MatrixXd& J_pose, const Eigen::VectorXd& Kp_pose,
+    const Eigen::VectorXd& Kd_pose, const Eigen::MatrixXd& N_pre,
+    const Eigen::VectorXd& q_cmd, const Eigen::VectorXd& qd_cmd,
+    const Eigen::VectorXd& q_pose, const Eigen::VectorXd& qd_pre,
+    const Eigen::VectorXd& qdd_pre) {
+  // Compute the pseudo-inverse of the Jacobian
+  Eigen::MatrixXd J_dyn_pinv = ComputeJacobianPseudoInv(J_pose, M_inv_, N_pre);
+
+  // Compute null-space projection in actuator subspace
+  Eigen::MatrixXd N_pose = Iqq_ - J_dyn_pinv * J_pose;
+  // **Compute stiffness torque**
+  Eigen::VectorXd posi_err = q_cmd - q_pose;
+  Eigen::VectorXd u_stiff = (stiffness_.array() * posi_err.array()).matrix();
+
+  // Compute damping torque
+  // Compute critical damping gains and scale by damping ratio. Use Eigen
+  // arrays (rather than matrices) for elementwise multiplication.
+  Eigen::ArrayXd damping_gains =
+      2 * (M_.diagonal().array() * stiffness_.array()).sqrt();
+  damping_gains *= Kd_pose.array();
+  Eigen::VectorXd u_damp = (damping_gains * (qd_cmd - qd_pre).array()).matrix();
+
+  Eigen::VectorXd tau_def_pose = u_stiff + u_damp;
+  // Compute the task-space Velocity
+  Eigen::VectorXd qd_pose = N_pose * qd_pre;
+  // Compute the desired acceleration for the task
+  Eigen::VectorXd qdd_pose =
+      qdd_pre + M_inv_ * N_pre.transpose() * (tau_def_pose + bv_ - tau_g_);
+
+  return std::make_tuple(qd_pose, qdd_pose, N_pre * N_pose);
+}
+
 std::pair<Eigen::MatrixXd, Eigen::MatrixXd> WBController::GetBodyJacobian(
     const drake::multibody::Frame<double>& foot_frame) {
   MatrixX<double> J_trans(3, num_q_);
@@ -347,28 +385,10 @@ Eigen::VectorXd WBController::CalcTorque(Eigen::VectorXd desired_position,
   tau_g_ = plant_.CalcGravityGeneralizedForces(context_);
   // Compute Coriolis and centrifugal forces
   plant_.CalcBiasTerm(context_, &bv_);  // b
-  // Extract the actuation matrix from the plant (B matrix).
-  Eigen::MatrixXd Selection_matirx = Eigen::MatrixXd::Zero(num_q_, num_q_);
-  Selection_matirx.bottomRightCorner(num_a_, num_a_) = Iaa_;
   // Nullspace projection
   Eigen::LLT<Eigen::MatrixXd> llt(M_);
   DRAKE_DEMAND(llt.info() == Eigen::Success);
   M_inv_ = llt.solve(Iqq_);
-
-  // **Compute stiffness torque**
-  Eigen::VectorXd position_error = desired_position - state_pos;
-  Eigen::VectorXd u_stiffness =
-      (stiffness_.array() * position_error.array()).matrix();
-
-  // Compute damping torque
-  // Compute critical damping gains and scale by damping ratio. Use Eigen
-  // arrays (rather than matrices) for elementwise multiplication.
-  Eigen::ArrayXd temp = M_.diagonal().array() * stiffness_.array();
-  Eigen::ArrayXd damping_gains = 2 * temp.sqrt();
-  damping_gains *= damping_ratio_.array();
-  Eigen::VectorXd u_damping = -(damping_gains * state_qd.array()).matrix();
-
-  Eigen::VectorXd tau_def_pose = u_stiffness.tail(num_q_) + u_damping;
 
   // Compute the desired acceleration for the task
   const auto& left_foot = plant_.GetBodyByName("left_ankle_roll_link");
@@ -428,9 +448,18 @@ Eigen::VectorXd WBController::CalcTorque(Eigen::VectorXd desired_position,
   // std::cout << "\rRight foot position: " << x_right_foot_trans.transpose()
   //           << " left foot position: " << x_left_foot_trans.transpose()
   //           << std::flush;
+  Eigen::VectorXd Kp_pose = stiffness_.tail(num_q_);
+  Eigen::VectorXd Kd_pose = damping_ratio_.tail(num_q_);
+  Eigen::VectorXd q_pose = state_pos.tail(num_q_);
+  Eigen::VectorXd q_cmd = desired_position.tail(num_q_);
+  Eigen::VectorXd qd_cmd = Eigen::VectorXd::Zero(num_q_);
+  auto [qd_pose, qdd_pose, N_pose] =
+      NspacePoseCtrl(S_float_, Kp_pose, Kd_pose, N_right_foot, q_cmd, qd_cmd,
+                     q_pose, qd_right_foot, qdd_right_foot);
 
-  return M_ * qdd_right_foot +
-         N_right_foot.transpose() * (tau_def_pose + bv_ - tau_g_);
+  // return M_ * qdd_right_foot +
+  //        N_right_foot.transpose() * (tau_def_pose + bv_ - tau_g_);
+  return M_ * qdd_pose;
 }
 
 }  // namespace unitree_g1

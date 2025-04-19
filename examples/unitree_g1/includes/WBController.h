@@ -29,9 +29,11 @@ class WBController {
 
   const Eigen::VectorX<double> stiffness_, damping_ratio_;
 
-  Eigen::MatrixXd Iqq_, Iaa_;
+  // tool matrix and default size
+  Eigen::MatrixXd Iqq_, Iaa_, S_float_;
   int num_q_, num_a_, num_pos_;
 
+  // dynamic matrices
   Eigen::MatrixXd M_, M_inv_;
   Eigen::VectorXd bv_, tau_g_;
 
@@ -82,6 +84,13 @@ class WBController {
       const Eigen::MatrixXd& N_pre, const Eigen::VectorXd x_cmd,
       const Eigen::VectorXd xd_cmd, const Eigen::VectorXd& state_qd,
       const Eigen::VectorXd& state_qdd);
+
+  std::tuple<Eigen::VectorXd, Eigen::VectorXd, Eigen::MatrixXd> NspacePoseCtrl(
+      const Eigen::MatrixXd& J_pose, const Eigen::VectorXd& Kp_pose,
+      const Eigen::VectorXd& Kd_pose, const Eigen::MatrixXd& N_pre,
+      const Eigen::VectorXd& q_cmd, const Eigen::VectorXd& qd_cmd,
+      const Eigen::VectorXd& q_pose, const Eigen::VectorXd& qd_pre,
+      const Eigen::VectorXd& qdd_pre);
 };
 
 }  // namespace unitree_g1
