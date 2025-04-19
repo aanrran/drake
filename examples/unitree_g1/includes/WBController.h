@@ -29,11 +29,11 @@ class WBController {
 
   const Eigen::VectorX<double> stiffness_, damping_ratio_;
 
-  Eigen::MatrixXd Ivv_, Iaa_;
+  Eigen::MatrixXd Iqq_, Iaa_;
   int num_q_, num_a_, num_pos_;
 
   Eigen::MatrixXd M_, M_inv_;
-  Eigen::VectorXd Cv_, tau_g_;
+  Eigen::VectorXd bv_, tau_g_;
 
   // QP solver
   std::unique_ptr<drake::solvers::OsqpSolver> solver_;

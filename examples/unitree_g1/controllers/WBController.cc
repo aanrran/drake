@@ -26,11 +26,11 @@ WBController::WBController(
   num_q_ = plant_.num_velocities();
   num_a_ = plant_.num_actuators();
 
-  Ivv_ = Eigen::MatrixXd::Identity(num_q_, num_q_);
+  Iqq_ = Eigen::MatrixXd::Identity(num_q_, num_q_);
   Iaa_ = Eigen::MatrixXd::Identity(num_a_, num_a_);
 
   tau_g_ = Eigen::VectorXd::Zero(num_q_);
-  Cv_ = Eigen::VectorXd::Zero(num_q_);
+  bv_ = Eigen::VectorXd::Zero(num_q_);
   M_ = Eigen::MatrixXd::Zero(num_q_, num_q_);
   M_inv_ = Eigen::MatrixXd::Zero(num_q_, num_q_);
 
@@ -56,7 +56,7 @@ WBController::ComputeTaskSpaceAccel(
   Eigen::MatrixXd J_dyn_pinv = ComputeJacobianPseudoInv(J_task, M_inv_, N_pre);
 
   // Compute null-space projection in actuator subspace
-  Eigen::MatrixXd N_task = Ivv_ - J_dyn_pinv * J_task;
+  Eigen::MatrixXd N_task = Iqq_ - J_dyn_pinv * J_task;
   // Compute the desired acceleration for the task
   Eigen::VectorXd xd_task = J_task * state_qd;
   // PD Controller
@@ -81,7 +81,7 @@ WBController::ComputeTaskSpaceAccel(
   // Compute desired acceleration
   Eigen::VectorXd qdd_task =
       state_qdd + J_dyn_pinv * (xdd_des - Jd_qd_task -
-                                J_task * (state_qdd - M_inv_ * (Cv_ - tau_g_)));
+                                J_task * (state_qdd - M_inv_ * (bv_ - tau_g_)));
 
   return std::make_tuple(qd_task, qdd_task, N_pre * N_task);
 }
@@ -168,7 +168,7 @@ WBController::NspaceContactrl(const double& Kp_task, const double& Kd_task,
   Eigen::MatrixXd J_dyn_pinv = ComputeJacobianPseudoInv(J_task, M_inv_, N_pre);
 
   // Compute null-space projection in actuator subspace
-  Eigen::MatrixXd N_task = Ivv_ - J_dyn_pinv * J_task;
+  Eigen::MatrixXd N_task = Iqq_ - J_dyn_pinv * J_task;
   // Compute the desired acceleration for the task
   Eigen::VectorXd xd_task = J_task * state_qd;
 
@@ -346,14 +346,14 @@ Eigen::VectorXd WBController::CalcTorque(Eigen::VectorXd desired_position,
   // Compute gravity forces
   tau_g_ = plant_.CalcGravityGeneralizedForces(context_);
   // Compute Coriolis and centrifugal forces
-  plant_.CalcBiasTerm(context_, &Cv_);  // b
+  plant_.CalcBiasTerm(context_, &bv_);  // b
   // Extract the actuation matrix from the plant (B matrix).
   Eigen::MatrixXd Selection_matirx = Eigen::MatrixXd::Zero(num_q_, num_q_);
   Selection_matirx.bottomRightCorner(num_a_, num_a_) = Iaa_;
   // Nullspace projection
   Eigen::LLT<Eigen::MatrixXd> llt(M_);
   DRAKE_DEMAND(llt.info() == Eigen::Success);
-  M_inv_ = llt.solve(Ivv_);
+  M_inv_ = llt.solve(Iqq_);
 
   // **Compute stiffness torque**
   Eigen::VectorXd position_error = desired_position - state_pos;
@@ -381,7 +381,7 @@ Eigen::VectorXd WBController::CalcTorque(Eigen::VectorXd desired_position,
   xd_cmd_left_foot << 0.0, 0.0, 0.0, 0.0, 0.0, 0.0;
 
   auto [qd_left_foot, qdd_left_foot, N_left_foot] =
-      NspacePDctrl(Kp_left_foot, Kd_left_foot, Ivv_, x_cmd_left_foot,
+      NspacePDctrl(Kp_left_foot, Kd_left_foot, Iqq_, x_cmd_left_foot,
                    xd_cmd_left_foot, state_qd, state_qdd, left_foot, "both");
 
   // // Compute desired CoM acceleration
@@ -423,14 +423,14 @@ Eigen::VectorXd WBController::CalcTorque(Eigen::VectorXd desired_position,
       NspacePDctrl(Kp_right_foot, Kd_right_foot, N_torso, x_cmd_right_foot,
                    xd_cmd_right_foot, state_qd, qdd_torso, right_foot, "both");
   // print right foot position
-  auto [x_left_foot_trans, x_left_foot_rpy] = GetPosInWorld(left_foot);
-  auto [x_right_foot_trans, x_right_foot_rpy] = GetPosInWorld(right_foot);
+  // auto [x_left_foot_trans, x_left_foot_rpy] = GetPosInWorld(left_foot);
+  // auto [x_right_foot_trans, x_right_foot_rpy] = GetPosInWorld(right_foot);
   // std::cout << "\rRight foot position: " << x_right_foot_trans.transpose()
   //           << " left foot position: " << x_left_foot_trans.transpose()
   //           << std::flush;
 
   return M_ * qdd_right_foot +
-         N_right_foot.transpose() * (tau_def_pose + Cv_ - tau_g_);
+         N_right_foot.transpose() * (tau_def_pose + bv_ - tau_g_);
 }
 
 }  // namespace unitree_g1
