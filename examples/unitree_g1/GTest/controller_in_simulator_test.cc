@@ -43,7 +43,7 @@ int do_main() {
   AddActuatorsToPlant(plant);
 
   // ✅ 4. Set Initial Robot Pose
-  const double initial_z_offset = 0.75;
+  const double initial_z_offset = 0.85;
   plant.SetDefaultFreeBodyPose(
       plant.GetBodyByName("pelvis", model_instance),
       RigidTransformd(Eigen::Translation3d(0, 0, initial_z_offset)));

@@ -25,8 +25,14 @@ WBController::WBController(
   num_pos_ = plant_.num_positions();
   num_q_ = plant_.num_velocities();
   num_a_ = plant_.num_actuators();
+
   Ivv_ = Eigen::MatrixXd::Identity(num_q_, num_q_);
   Iaa_ = Eigen::MatrixXd::Identity(num_a_, num_a_);
+
+  tau_g_ = Eigen::VectorXd::Zero(num_q_);
+  Cv_ = Eigen::VectorXd::Zero(num_q_);
+  M_ = Eigen::MatrixXd::Zero(num_q_, num_q_);
+  M_inv_ = Eigen::MatrixXd::Zero(num_q_, num_q_);
 
   solver_ = std::make_unique<drake::solvers::OsqpSolver>();
   // Define variables: joint torques (tau), accelerations (ddq)
@@ -44,12 +50,10 @@ WBController::ComputeTaskSpaceAccel(
     const Eigen::MatrixXd& J_task, const Eigen::VectorXd& x_task,
     const Eigen::VectorXd& x_cmd, const Eigen::VectorXd& xd_cmd,
     const Eigen::VectorXd& Jd_qd_task, const Eigen::VectorXd& state_qd,
-    const Eigen::VectorXd& state_qdd, const Eigen::MatrixXd& M_inverse,
-    const Eigen::MatrixXd& N_pre, const double& Kp_task,
-    const double& Kd_task) {
+    const Eigen::VectorXd& state_qdd, const Eigen::MatrixXd& N_pre,
+    const double& Kp_task, const double& Kd_task) {
   // Compute the pseudo-inverse of the Jacobian
-  Eigen::MatrixXd J_dyn_pinv =
-      ComputeJacobianPseudoInv(J_task, M_inverse, N_pre);
+  Eigen::MatrixXd J_dyn_pinv = ComputeJacobianPseudoInv(J_task, M_inv_, N_pre);
 
   // Compute null-space projection in actuator subspace
   Eigen::MatrixXd N_task = Ivv_ - J_dyn_pinv * J_task;
@@ -57,7 +61,7 @@ WBController::ComputeTaskSpaceAccel(
   Eigen::VectorXd xd_task = J_task * state_qd;
   // PD Controller
   // 1. Compute Lambda_inv
-  Eigen::MatrixXd Lambda_inv = J_task * M_inverse * J_task.transpose();
+  Eigen::MatrixXd Lambda_inv = J_task * M_inv_ * J_task.transpose();
   Lambda_inv.diagonal().array() += 1e-6;  // regularization
 
   // 2. Approximate Lambda using diagonal inverse
@@ -76,7 +80,8 @@ WBController::ComputeTaskSpaceAccel(
   Eigen::VectorXd qd_task = N_task * state_qd;
   // Compute desired acceleration
   Eigen::VectorXd qdd_task =
-      state_qdd + J_dyn_pinv * (xdd_des - Jd_qd_task - J_task * state_qdd);
+      state_qdd + J_dyn_pinv * (xdd_des - Jd_qd_task -
+                                J_task * (state_qdd - M_inv_ * (Cv_ - tau_g_)));
 
   return std::make_tuple(qd_task, qdd_task, N_pre * N_task);
 }
@@ -87,8 +92,7 @@ WBController::NspaceCoMctrl(const double& Kp_task, const double& Kd_task,
                             const Eigen::VectorXd x_cmd,
                             const Eigen::VectorXd xd_cmd,
                             const Eigen::VectorXd& state_qd,
-                            const Eigen::VectorXd& state_qdd,
-                            const Eigen::MatrixXd& M_inverse) {
+                            const Eigen::VectorXd& state_qdd) {
   // Get the current CoM position
   drake::Vector3<double> x_task =
       plant_.CalcCenterOfMassPositionInWorld(context_);
@@ -111,17 +115,18 @@ WBController::NspaceCoMctrl(const double& Kp_task, const double& Kd_task,
   const auto Jd_qd_task = com_spacial_bias.translational();
 
   return ComputeTaskSpaceAccel(J_task, x_task, x_cmd, xd_cmd, Jd_qd_task,
-                               state_qd, state_qdd, M_inverse, N_pre, Kp_task,
-                               Kd_task);
+                               state_qd, state_qdd, N_pre, Kp_task, Kd_task);
 }
 
 std::tuple<Eigen::VectorXd, Eigen::VectorXd, Eigen::MatrixXd>
-WBController::NspaceContactrl(
-    const double& Kp_task, const double& Kd_task, const Eigen::MatrixXd& N_pre,
-    const Eigen::VectorXd x_cmd, const Eigen::VectorXd xd_cmd,
-    const Eigen::VectorXd& state_qd, const Eigen::VectorXd& state_qdd,
-    const drake::multibody::Body<double>& task_body,
-    const Eigen::MatrixXd& M_inverse, const std::string& task_type) {
+WBController::NspaceContactrl(const double& Kp_task, const double& Kd_task,
+                              const Eigen::MatrixXd& N_pre,
+                              const Eigen::VectorXd x_cmd,
+                              const Eigen::VectorXd xd_cmd,
+                              const Eigen::VectorXd& state_qd,
+                              const Eigen::VectorXd& state_qdd,
+                              const drake::multibody::Body<double>& task_body,
+                              const std::string& task_type) {
   // Compute the Jacobian
   auto [J_trans, J_rpy] = GetBodyJacobian(task_body.body_frame());
   // Compute the bias acceleration for the right foot
@@ -160,8 +165,7 @@ WBController::NspaceContactrl(
   }
 
   // Compute the pseudo-inverse of the Jacobian
-  Eigen::MatrixXd J_dyn_pinv =
-      ComputeJacobianPseudoInv(J_task, M_inverse, N_pre);
+  Eigen::MatrixXd J_dyn_pinv = ComputeJacobianPseudoInv(J_task, M_inv_, N_pre);
 
   // Compute null-space projection in actuator subspace
   Eigen::MatrixXd N_task = Ivv_ - J_dyn_pinv * J_task;
@@ -199,17 +203,18 @@ WBController::NspaceContactrl(
   x_cmd_full.head(3) = x_cmd_trans;
   x_cmd_full.tail(3) = x_cmd.tail(3);
   return ComputeTaskSpaceAccel(J_task, x_task, x_cmd_full, xd_cmd, Jd_qd_task,
-                               state_qd, state_qdd, M_inverse, N_pre, Kp_task,
-                               Kd_task);
+                               state_qd, state_qdd, N_pre, Kp_task, Kd_task);
 }
 
 std::tuple<Eigen::VectorXd, Eigen::VectorXd, Eigen::MatrixXd>
-WBController::NspacePDctrl(
-    const double& Kp_task, const double& Kd_task, const Eigen::MatrixXd& N_pre,
-    const Eigen::VectorXd x_cmd, const Eigen::VectorXd xd_cmd,
-    const Eigen::VectorXd& state_qd, const Eigen::VectorXd& state_qdd,
-    const drake::multibody::Body<double>& task_body,
-    const Eigen::MatrixXd& M_inverse, const std::string& task_type) {
+WBController::NspacePDctrl(const double& Kp_task, const double& Kd_task,
+                           const Eigen::MatrixXd& N_pre,
+                           const Eigen::VectorXd x_cmd,
+                           const Eigen::VectorXd xd_cmd,
+                           const Eigen::VectorXd& state_qd,
+                           const Eigen::VectorXd& state_qdd,
+                           const drake::multibody::Body<double>& task_body,
+                           const std::string& task_type) {
   // Compute the Jacobian
   auto [J_trans, J_rpy] = GetBodyJacobian(task_body.body_frame());
   // Compute the bias acceleration for the right foot
@@ -248,8 +253,7 @@ WBController::NspacePDctrl(
   }
 
   return ComputeTaskSpaceAccel(J_task, x_task, x_cmd, xd_cmd, Jd_qd_task,
-                               state_qd, state_qdd, M_inverse, N_pre, Kp_task,
-                               Kd_task);
+                               state_qd, state_qdd, N_pre, Kp_task, Kd_task);
 }
 
 std::pair<Eigen::MatrixXd, Eigen::MatrixXd> WBController::GetBodyJacobian(
@@ -309,10 +313,10 @@ std::pair<Eigen::Vector3d, Eigen::Vector3d> WBController::GetPosInWorld(
 }
 
 Eigen::MatrixXd WBController::ComputeJacobianPseudoInv(
-    const Eigen::MatrixXd& Jacobian, const Eigen::MatrixXd& M_inverse,
+    const Eigen::MatrixXd& Jacobian, const Eigen::MatrixXd& M_inv_,
     const Eigen::MatrixXd& N_pre) {
   Eigen::MatrixXd JN_pre = Jacobian * N_pre;
-  Eigen::MatrixXd Lambda = JN_pre * M_inverse * JN_pre.transpose();
+  Eigen::MatrixXd Lambda = JN_pre * M_inv_ * JN_pre.transpose();
 
   // Regularize Lambda to avoid singularities
   Lambda.diagonal().array() += 1e-6;
@@ -322,7 +326,7 @@ Eigen::MatrixXd WBController::ComputeJacobianPseudoInv(
   Eigen::MatrixXd Lambda_pinv = cod.pseudoInverse();
 
   // Dynamically consistent pseudoinverse
-  Eigen::MatrixXd J_dyn_pinv = M_inverse * JN_pre.transpose() * Lambda_pinv;
+  Eigen::MatrixXd J_dyn_pinv = M_inv_ * JN_pre.transpose() * Lambda_pinv;
   return J_dyn_pinv;
 }
 
@@ -338,20 +342,18 @@ Eigen::VectorXd WBController::CalcTorque(Eigen::VectorXd desired_position,
   Eigen::VectorXd state_qdd =
       plant_.get_generalized_acceleration_output_port().Eval(context_);
   // Compute mass matrix H
-  Eigen::MatrixXd Mass_matrix(num_q_, num_q_);
-  plant_.CalcMassMatrix(context_, &Mass_matrix);
+  plant_.CalcMassMatrix(context_, &M_);
   // Compute gravity forces
-  Eigen::VectorXd tau_g = plant_.CalcGravityGeneralizedForces(context_);
+  tau_g_ = plant_.CalcGravityGeneralizedForces(context_);
   // Compute Coriolis and centrifugal forces
-  VectorX<double> Cv(num_q_);
-  plant_.CalcBiasTerm(context_, &Cv);  // b
+  plant_.CalcBiasTerm(context_, &Cv_);  // b
   // Extract the actuation matrix from the plant (B matrix).
   Eigen::MatrixXd Selection_matirx = Eigen::MatrixXd::Zero(num_q_, num_q_);
   Selection_matirx.bottomRightCorner(num_a_, num_a_) = Iaa_;
   // Nullspace projection
-  Eigen::LLT<Eigen::MatrixXd> llt(Mass_matrix);
+  Eigen::LLT<Eigen::MatrixXd> llt(M_);
   DRAKE_DEMAND(llt.info() == Eigen::Success);
-  Eigen::MatrixXd M_inverse = llt.solve(Ivv_);
+  M_inv_ = llt.solve(Ivv_);
 
   // **Compute stiffness torque**
   Eigen::VectorXd position_error = desired_position - state_pos;
@@ -361,7 +363,7 @@ Eigen::VectorXd WBController::CalcTorque(Eigen::VectorXd desired_position,
   // Compute damping torque
   // Compute critical damping gains and scale by damping ratio. Use Eigen
   // arrays (rather than matrices) for elementwise multiplication.
-  Eigen::ArrayXd temp = Mass_matrix.diagonal().array() * stiffness_.array();
+  Eigen::ArrayXd temp = M_.diagonal().array() * stiffness_.array();
   Eigen::ArrayXd damping_gains = 2 * temp.sqrt();
   damping_gains *= damping_ratio_.array();
   Eigen::VectorXd u_damping = -(damping_gains * state_qd.array()).matrix();
@@ -378,9 +380,9 @@ Eigen::VectorXd WBController::CalcTorque(Eigen::VectorXd desired_position,
   Eigen::VectorXd xd_cmd_left_foot(6);
   xd_cmd_left_foot << 0.0, 0.0, 0.0, 0.0, 0.0, 0.0;
 
-  auto [qd_left_foot, qdd_left_foot, N_left_foot] = NspacePDctrl(
-      Kp_left_foot, Kd_left_foot, Ivv_, x_cmd_left_foot, xd_cmd_left_foot,
-      state_qd, state_qdd, left_foot, M_inverse, "both");
+  auto [qd_left_foot, qdd_left_foot, N_left_foot] =
+      NspacePDctrl(Kp_left_foot, Kd_left_foot, Ivv_, x_cmd_left_foot,
+                   xd_cmd_left_foot, state_qd, state_qdd, left_foot, "both");
 
   // // Compute desired CoM acceleration
   // double Kp_com = 2000.0;
@@ -391,7 +393,7 @@ Eigen::VectorXd WBController::CalcTorque(Eigen::VectorXd desired_position,
   // xd_cmd_com << 0.0, 0.0, 0.0;
   // auto [qd_com, qdd_com, N_com] =
   //     NspaceCoMctrl(Kp_com, Kd_com, N_left_foot, x_cmd_com, xd_cmd_com,
-  //                   state_qd, qdd_left_foot, M_inverse);
+  //                   state_qd, qdd_left_foot);
 
   // Compute desired torso acceleration
   const auto& torso = plant_.GetBodyByName("torso_link");
@@ -405,7 +407,7 @@ Eigen::VectorXd WBController::CalcTorque(Eigen::VectorXd desired_position,
 
   auto [qd_torso, qdd_torso, N_torso] =
       NspacePDctrl(Kp_torso, Kd_torso, N_left_foot, x_cmd_torso, xd_cmd_torso,
-                   state_qd, qdd_left_foot, torso, M_inverse, "rpy");
+                   state_qd, qdd_left_foot, torso, "rpy");
 
   // Compute desired right leg acceleration
   const auto& right_foot = plant_.GetBodyByName("right_ankle_roll_link");
@@ -417,12 +419,18 @@ Eigen::VectorXd WBController::CalcTorque(Eigen::VectorXd desired_position,
   Eigen::VectorXd xd_cmd_right_foot(6);
   xd_cmd_right_foot << 0.0, 0.0, 0.0, 0.0, 0.0, 0.0;
 
-  auto [qd_right_foot, qdd_right_foot, N_right_foot] = NspacePDctrl(
-      Kp_right_foot, Kd_right_foot, N_torso, x_cmd_right_foot,
-      xd_cmd_right_foot, state_qd, qdd_torso, right_foot, M_inverse, "both");
+  auto [qd_right_foot, qdd_right_foot, N_right_foot] =
+      NspacePDctrl(Kp_right_foot, Kd_right_foot, N_torso, x_cmd_right_foot,
+                   xd_cmd_right_foot, state_qd, qdd_torso, right_foot, "both");
+  // print right foot position
+  auto [x_left_foot_trans, x_left_foot_rpy] = GetPosInWorld(left_foot);
+  auto [x_right_foot_trans, x_right_foot_rpy] = GetPosInWorld(right_foot);
+  // std::cout << "\rRight foot position: " << x_right_foot_trans.transpose()
+  //           << " left foot position: " << x_left_foot_trans.transpose()
+  //           << std::flush;
 
-  return Mass_matrix * qdd_right_foot + Cv - tau_g +
-         (N_right_foot).transpose() * tau_def_pose;
+  return M_ * qdd_right_foot +
+         N_right_foot.transpose() * (tau_def_pose + Cv_ - tau_g_);
 }
 
 }  // namespace unitree_g1

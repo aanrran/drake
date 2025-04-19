@@ -32,6 +32,9 @@ class WBController {
   Eigen::MatrixXd Ivv_, Iaa_;
   int num_q_, num_a_, num_pos_;
 
+  Eigen::MatrixXd M_, M_inv_;
+  Eigen::VectorXd Cv_, tau_g_;
+
   // QP solver
   std::unique_ptr<drake::solvers::OsqpSolver> solver_;
   drake::solvers::MathematicalProgram prog_;
@@ -55,9 +58,8 @@ class WBController {
       const Eigen::MatrixXd& J_task, const Eigen::VectorXd& x_task,
       const Eigen::VectorXd& x_cmd, const Eigen::VectorXd& xd_cmd,
       const Eigen::VectorXd& Jd_qd_task, const Eigen::VectorXd& state_qd,
-      const Eigen::VectorXd& state_qdd, const Eigen::MatrixXd& M_inverse,
-      const Eigen::MatrixXd& N_pre, const double& Kp_task,
-      const double& Kd_task);
+      const Eigen::VectorXd& state_qdd, const Eigen::MatrixXd& N_pre,
+      const double& Kp_task, const double& Kd_task);
 
   std::tuple<Eigen::VectorXd, Eigen::VectorXd, Eigen::MatrixXd> NspacePDctrl(
       const double& Kp_task, const double& Kd_task,
@@ -65,7 +67,7 @@ class WBController {
       const Eigen::VectorXd xd_cmd, const Eigen::VectorXd& state_qd,
       const Eigen::VectorXd& state_qdd,
       const drake::multibody::Body<double>& task_body,
-      const Eigen::MatrixXd& M_inverse, const std::string& task_type);
+      const std::string& task_type);
 
   std::tuple<Eigen::VectorXd, Eigen::VectorXd, Eigen::MatrixXd> NspaceContactrl(
       const double& Kp_task, const double& Kd_task,
@@ -73,13 +75,13 @@ class WBController {
       const Eigen::VectorXd xd_cmd, const Eigen::VectorXd& state_qd,
       const Eigen::VectorXd& state_qdd,
       const drake::multibody::Body<double>& task_body,
-      const Eigen::MatrixXd& M_inverse, const std::string& task_type);
+      const std::string& task_type);
 
   std::tuple<Eigen::VectorXd, Eigen::VectorXd, Eigen::MatrixXd> NspaceCoMctrl(
       const double& Kp_task, const double& Kd_task,
       const Eigen::MatrixXd& N_pre, const Eigen::VectorXd x_cmd,
       const Eigen::VectorXd xd_cmd, const Eigen::VectorXd& state_qd,
-      const Eigen::VectorXd& state_qdd, const Eigen::MatrixXd& M_inverse);
+      const Eigen::VectorXd& state_qdd);
 };
 
 }  // namespace unitree_g1
