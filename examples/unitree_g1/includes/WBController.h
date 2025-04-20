@@ -35,12 +35,12 @@ class WBController {
 
   // dynamic matrices
   Eigen::MatrixXd M_, M_inv_;
-  Eigen::VectorXd bv_, tau_g_;
+  Eigen::VectorXd bv_, tau_g_, tau_sensor_;
 
   // QP solver
   std::unique_ptr<drake::solvers::OsqpSolver> solver_;
   drake::solvers::MathematicalProgram prog_;
-  drake::solvers::VectorXDecisionVariable tau_, qdd_, u2_, tau0_, JTfr_;
+  drake::solvers::VectorXDecisionVariable tau_, qdd_, u2_, tau0_;
 
   std::pair<Eigen::MatrixXd, Eigen::MatrixXd> GetBodyJacobian(
       const drake::multibody::Frame<double>& foot_frame);
