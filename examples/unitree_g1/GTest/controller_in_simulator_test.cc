@@ -58,7 +58,7 @@ int do_main() {
 
   // ✅ 6. add gravity adjustment feature
   plant.mutable_gravity_field().set_gravity_vector(Eigen::Vector3d(
-      0, 0, -1.81));  // Default -9.81 for Earth gravity, -1.625 for moon
+      0, 0, -9.81));  // Default -9.81 for Earth gravity, -1.625 for moon
 
   // ✅ 7. Finalize Plant Before Using Actuated DOFs
   plant.Finalize();

@@ -32,6 +32,14 @@ WBController::WBController(
   // Extract the actuation matrix from the plant (B matrix).
   S_float_ = Eigen::MatrixXd::Zero(num_q_, num_q_);
   S_float_.bottomRightCorner(num_a_, num_a_) = Iaa_;
+  // Select [x y z]
+  S_trans_ = Eigen::MatrixXd::Zero(3, 6);
+  S_trans_.block<3, 3>(0, 0) = Eigen::Matrix3d::Identity();
+  // Select [roll pitch yaw]
+  S_rpy_ = Eigen::MatrixXd::Zero(3, 6);
+  S_rpy_.block<3, 3>(0, 3) = Eigen::Matrix3d::Identity();
+  // Select full [x y z roll pitch yaw]
+  S_spac_ = Eigen::MatrixXd::Identity(6, 6);
 
   tau_g_ = Eigen::VectorXd::Zero(num_q_);
   bv_ = Eigen::VectorXd::Zero(num_q_);
@@ -129,7 +137,7 @@ WBController::NspaceContactrl(const double& Kp_task, const double& Kd_task,
                               const Eigen::VectorXd& state_qd,
                               const Eigen::VectorXd& state_qdd,
                               const drake::multibody::Body<double>& task_body,
-                              const std::string& task_type) {
+                              const Eigen::MatrixXd& S_task) {
   // Compute the Jacobian
   auto [J_trans, J_rpy] = GetBodyJacobian(task_body.body_frame());
   // Compute the bias acceleration for the right foot
@@ -137,35 +145,23 @@ WBController::NspaceContactrl(const double& Kp_task, const double& Kd_task,
   // Compute the position of the task body in world frame
   auto [x_trans, x_rpy] = GetPosInWorld(task_body);
   // Compute the positions and Jacobians based on task type
-  Eigen::VectorXd x_task;
-  Eigen::MatrixXd J_task, Jd_qd_task;
-  if (task_type == "trans") {
-    x_task = x_trans;
-    J_task = J_trans;
-    Jd_qd_task = Jd_qd_trans;
-  } else if (task_type == "rpy") {
-    x_task = x_rpy;
-    J_task = J_rpy;
-    Jd_qd_task = Jd_qd_rpy;
-  } else if (task_type == "both") {
-    DRAKE_DEMAND(x_trans.size() == 3 && x_rpy.size() == 3);
-    DRAKE_DEMAND(J_trans.rows() == 3 && J_rpy.rows() == 3);
-    DRAKE_DEMAND(J_trans.cols() == num_q_ && J_rpy.cols() == num_q_);
+  // Stitch full task representations
+  Eigen::VectorXd x_full(6);
+  x_full.head(3) = x_trans;
+  x_full.tail(3) = x_rpy;
 
-    x_task.resize(6);
-    x_task.head(3) = x_trans;
-    x_task.tail(3) = x_rpy;
+  Eigen::MatrixXd J_full(6, num_q_);
+  J_full.topRows(3) = J_trans;
+  J_full.bottomRows(3) = J_rpy;
 
-    J_task.resize(6, num_q_);
-    J_task.topRows(3) = J_trans;
-    J_task.bottomRows(3) = J_rpy;
+  Eigen::MatrixXd Jd_qd_full(6, num_q_);
+  Jd_qd_full.topRows(3) = Jd_qd_trans;
+  Jd_qd_full.bottomRows(3) = Jd_qd_rpy;
 
-    Jd_qd_task.resize(6, num_q_);
-    Jd_qd_task.topRows(3) = Jd_qd_trans;
-    Jd_qd_task.bottomRows(3) = Jd_qd_rpy;
-  } else {
-    throw std::runtime_error("Invalid task type");
-  }
+  // Select task-specific components
+  Eigen::VectorXd x_task = S_task * x_full;
+  Eigen::MatrixXd J_task = S_task * J_full;
+  Eigen::VectorXd Jd_qd_task = S_task * Jd_qd_full;
 
   // Compute the pseudo-inverse of the Jacobian
   Eigen::MatrixXd J_dyn_pinv = ComputeJacobianPseudoInv(J_task, M_inv_, N_pre);
@@ -200,7 +196,7 @@ WBController::NspacePDctrl(const double& Kp_task, const double& Kd_task,
                            const Eigen::VectorXd& state_qd,
                            const Eigen::VectorXd& state_qdd,
                            const drake::multibody::Body<double>& task_body,
-                           const std::string& task_type) {
+                           const Eigen::MatrixXd& S_task) {
   // Compute the Jacobian
   auto [J_trans, J_rpy] = GetBodyJacobian(task_body.body_frame());
   // Compute the bias acceleration for the right foot
@@ -208,35 +204,23 @@ WBController::NspacePDctrl(const double& Kp_task, const double& Kd_task,
   // Compute the position of the task body in world frame
   auto [x_trans, x_rpy] = GetPosInWorld(task_body);
   // Compute the positions and Jacobians based on task type
-  Eigen::VectorXd x_task;
-  Eigen::MatrixXd J_task, Jd_qd_task;
-  if (task_type == "trans") {
-    x_task = x_trans;
-    J_task = J_trans;
-    Jd_qd_task = Jd_qd_trans;
-  } else if (task_type == "rpy") {
-    x_task = x_rpy;
-    J_task = J_rpy;
-    Jd_qd_task = Jd_qd_rpy;
-  } else if (task_type == "both") {
-    DRAKE_DEMAND(x_trans.size() == 3 && x_rpy.size() == 3);
-    DRAKE_DEMAND(J_trans.rows() == 3 && J_rpy.rows() == 3);
-    DRAKE_DEMAND(J_trans.cols() == num_q_ && J_rpy.cols() == num_q_);
+  // Stitch full task representations
+  Eigen::VectorXd x_full(6);
+  x_full.head(3) = x_trans;
+  x_full.tail(3) = x_rpy;
 
-    x_task.resize(6);
-    x_task.head(3) = x_trans;
-    x_task.tail(3) = x_rpy;
+  Eigen::MatrixXd J_full(6, num_q_);
+  J_full.topRows(3) = J_trans;
+  J_full.bottomRows(3) = J_rpy;
 
-    J_task.resize(6, num_q_);
-    J_task.topRows(3) = J_trans;
-    J_task.bottomRows(3) = J_rpy;
+  Eigen::MatrixXd Jd_qd_full(6, num_q_);
+  Jd_qd_full.topRows(3) = Jd_qd_trans;
+  Jd_qd_full.bottomRows(3) = Jd_qd_rpy;
 
-    Jd_qd_task.resize(6, num_q_);
-    Jd_qd_task.topRows(3) = Jd_qd_trans;
-    Jd_qd_task.bottomRows(3) = Jd_qd_rpy;
-  } else {
-    throw std::runtime_error("Invalid task type");
-  }
+  // Select task-specific components
+  Eigen::VectorXd x_task = S_task * x_full;
+  Eigen::MatrixXd J_task = S_task * J_full;
+  Eigen::VectorXd Jd_qd_task = S_task * Jd_qd_full;
 
   return ComputeTaskSpaceAccel(J_task, x_task, x_cmd, xd_cmd, Jd_qd_task,
                                state_qd, state_qdd, N_pre, Kp_task, Kd_task);
@@ -377,16 +361,16 @@ Eigen::VectorXd WBController::CalcTorque(Eigen::VectorXd desired_position,
   // Compute the desired acceleration for the foot contact task
   const auto& left_foot = plant_.GetBodyByName("left_ankle_roll_link");
 
-  double Kp_left_foot = 200.0;
+  double Kp_left_foot = 250.0;
   double Kd_left_foot = 0.7;
   Eigen::VectorXd x_cmd_left_foot(6);
   x_cmd_left_foot << 0.0, 0.0, 0.04, 0.0, 0.0, 0.0;
   Eigen::VectorXd xd_cmd_left_foot(6);
   xd_cmd_left_foot << 0.0, 0.0, 0.0, 0.0, 0.0, 0.0;
 
-  auto [qd_left_foot, qdd_left_foot, N_left_foot] =
-      NspaceContactrl(Kp_left_foot, Kd_left_foot, Iqq_, x_cmd_left_foot,
-                      xd_cmd_left_foot, state_qd, state_qdd, left_foot, "both");
+  auto [qd_left_foot, qdd_left_foot, N_left_foot] = NspaceContactrl(
+      Kp_left_foot, Kd_left_foot, Iqq_, x_cmd_left_foot, xd_cmd_left_foot,
+      state_qd, state_qdd, left_foot, S_spac_);
 
   // // Compute desired CoM acceleration
   // double Kp_com = 8000.0;
@@ -419,7 +403,7 @@ Eigen::VectorXd WBController::CalcTorque(Eigen::VectorXd desired_position,
 
   auto [qd_torso, qdd_torso, N_torso] =
       NspacePDctrl(Kp_torso, Kd_torso, N_left_foot, x_cmd_torso, xd_cmd_torso,
-                   qd_left_foot, qdd_left_foot, torso, "both");
+                   qd_left_foot, qdd_left_foot, torso, S_spac_);
 
   // // Compute desired right leg acceleration
   // const auto& right_foot = plant_.GetBodyByName("right_ankle_roll_link");

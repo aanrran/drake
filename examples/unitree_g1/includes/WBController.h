@@ -30,7 +30,7 @@ class WBController {
   const Eigen::VectorX<double> stiffness_, damping_ratio_;
 
   // tool matrix and default size
-  Eigen::MatrixXd Iqq_, Iaa_, S_float_;
+  Eigen::MatrixXd Iqq_, Iaa_, S_float_, S_trans_, S_rpy_, S_spac_;
   int num_q_, num_a_, num_pos_;
 
   // dynamic matrices
@@ -69,7 +69,7 @@ class WBController {
       const Eigen::VectorXd xd_cmd, const Eigen::VectorXd& state_qd,
       const Eigen::VectorXd& state_qdd,
       const drake::multibody::Body<double>& task_body,
-      const std::string& task_type);
+      const Eigen::MatrixXd& S_task);
 
   std::tuple<Eigen::VectorXd, Eigen::VectorXd, Eigen::MatrixXd> NspaceContactrl(
       const double& Kp_task, const double& Kd_task,
@@ -77,7 +77,7 @@ class WBController {
       const Eigen::VectorXd xd_cmd, const Eigen::VectorXd& state_qd,
       const Eigen::VectorXd& state_qdd,
       const drake::multibody::Body<double>& task_body,
-      const std::string& task_type);
+      const Eigen::MatrixXd& S_task);
 
   std::tuple<Eigen::VectorXd, Eigen::VectorXd, Eigen::MatrixXd> NspaceCoMctrl(
       const double& Kp_task, const double& Kd_task,
