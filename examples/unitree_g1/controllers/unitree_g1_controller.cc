@@ -31,8 +31,7 @@ UnitreeG1Controller<T>::UnitreeG1Controller(const MultibodyPlant<T>& plant)
   // my_controller_ = std::make_unique<ImpedanceController>(
   //     plant_, *plant_context_, stiffness, damping_ratio);
   desired_position_ = Eigen::VectorXd::Zero(num_q);
-  desired_position_ <<
-      // 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+  desired_position_ << 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
       -2.0,   // left_hip_pitch_joint
       0.0,    // left_hip_roll_joint
       0.0,    // left_hip_yaw_joint

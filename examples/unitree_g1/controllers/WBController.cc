@@ -107,16 +107,13 @@ WBController::NspaceCoMctrl(const double& Kp_task, const double& Kd_task,
       plant_.world_frame(), &J_task);
 
   // Compute the bias acceleration (Coriolis and centrifugal effects)
-  const drake::multibody::SpatialAcceleration<double> com_spacial_bias =
-      plant_.CalcBiasSpatialAcceleration(
+  Eigen::Vector3d Jd_qd_task =
+      plant_.CalcBiasCenterOfMassTranslationalAcceleration(
           context_,
           drake::multibody::JacobianWrtVariable::kV,  // ✅ Use kV
-          plant_.world_frame(),                       // Measured frame
-          x_task,                // Point of interest (CoM position)
           plant_.world_frame(),  // Expressed in world frame
           plant_.world_frame()   // Measured relative to world
       );
-  const auto Jd_qd_task = com_spacial_bias.translational();
 
   return ComputeTaskSpaceAccel(J_task, x_task, x_cmd, xd_cmd, Jd_qd_task,
                                state_qd, state_qdd, N_pre, Kp_task, Kd_task);
@@ -396,7 +393,7 @@ Eigen::VectorXd WBController::CalcTorque(Eigen::VectorXd desired_position,
   double Kp_left_foot = 1000.0;
   double Kd_left_foot = 0.7;
   Eigen::VectorXd x_cmd_left_foot(6);
-  x_cmd_left_foot << 0.0, 0.1, 0.3, 0.0, 0.0, 0.0;
+  x_cmd_left_foot << 0.0, 0.0, 0.04, 0.0, 0.0, 0.0;
   Eigen::VectorXd xd_cmd_left_foot(6);
   xd_cmd_left_foot << 0.0, 0.0, 0.0, 0.0, 0.0, 0.0;
 
@@ -404,44 +401,43 @@ Eigen::VectorXd WBController::CalcTorque(Eigen::VectorXd desired_position,
       NspacePDctrl(Kp_left_foot, Kd_left_foot, Iqq_, x_cmd_left_foot,
                    xd_cmd_left_foot, state_qd, state_qdd, left_foot, "both");
 
-  // // Compute desired CoM acceleration
-  // double Kp_com = 2000.0;
-  // double Kd_com = 3.7;
-  // Eigen::VectorXd x_cmd_com(3);
-  // x_cmd_com << 0.0, 0.05, 0.5;
-  // Eigen::VectorXd xd_cmd_com(3);
-  // xd_cmd_com << 0.0, 0.0, 0.0;
-  // auto [qd_com, qdd_com, N_com] =
-  //     NspaceCoMctrl(Kp_com, Kd_com, N_left_foot, x_cmd_com, xd_cmd_com,
-  //                   state_qd, qdd_left_foot);
-
   // Compute desired torso acceleration
   const auto& torso = plant_.GetBodyByName("torso_link");
-
-  double Kp_torso = 1000.0;
+  double Kp_torso = 700.0;
   double Kd_torso = 0.7;
-  Eigen::VectorXd x_cmd_torso(3);
-  x_cmd_torso << 0.0, 0.0, 3.14 * 0.5;
-  Eigen::VectorXd xd_cmd_torso(3);
-  xd_cmd_torso << 0.0, 0.0, 0.0;
+  Eigen::VectorXd x_cmd_torso(6);
+  x_cmd_torso << 0.0, 0.05, 0.5, 0.0, 0.0, 0.0;
+  Eigen::VectorXd xd_cmd_torso(6);
+  xd_cmd_torso << 0.0, 0.0, 0.0, 0.0, 0.0, 0.0;
 
   auto [qd_torso, qdd_torso, N_torso] =
       NspacePDctrl(Kp_torso, Kd_torso, N_left_foot, x_cmd_torso, xd_cmd_torso,
-                   state_qd, qdd_left_foot, torso, "rpy");
+                   qd_left_foot, qdd_left_foot, torso, "both");
 
-  // Compute desired right leg acceleration
-  const auto& right_foot = plant_.GetBodyByName("right_ankle_roll_link");
+  // // Compute desired CoM acceleration
+  // double Kp_com = 10000.0;
+  // double Kd_com = 0.7;
+  // Eigen::VectorXd x_cmd_com(3);
+  // x_cmd_com << 0.0, 0.0, 0.4;
+  // Eigen::VectorXd xd_cmd_com(3);
+  // xd_cmd_com << 0.0, 0.0, 0.0;
+  // auto [qd_com, qdd_com, N_com] = NspaceCoMctrl(
+  //     Kp_com, Kd_com, N_torso, x_cmd_com, xd_cmd_com, qd_torso, qdd_torso);
 
-  double Kp_right_foot = 1000.0;
-  double Kd_right_foot = 0.7;
-  Eigen::VectorXd x_cmd_right_foot(6);
-  x_cmd_right_foot << 0.0, -0.1, 0.3, 0.0, 0.0, 0.0;
-  Eigen::VectorXd xd_cmd_right_foot(6);
-  xd_cmd_right_foot << 0.0, 0.0, 0.0, 0.0, 0.0, 0.0;
+  // // Compute desired right leg acceleration
+  // const auto& right_foot = plant_.GetBodyByName("right_ankle_roll_link");
 
-  auto [qd_right_foot, qdd_right_foot, N_right_foot] =
-      NspacePDctrl(Kp_right_foot, Kd_right_foot, N_torso, x_cmd_right_foot,
-                   xd_cmd_right_foot, state_qd, qdd_torso, right_foot, "both");
+  // double Kp_right_foot = 1000.0;
+  // double Kd_right_foot = 0.7;
+  // Eigen::VectorXd x_cmd_right_foot(6);
+  // x_cmd_right_foot << 0.0, -0.1, 0.3, 0.0, 0.0, 0.0;
+  // Eigen::VectorXd xd_cmd_right_foot(6);
+  // xd_cmd_right_foot << 0.0, 0.0, 0.0, 0.0, 0.0, 0.0;
+
+  // auto [qd_right_foot, qdd_right_foot, N_right_foot] =
+  //     NspacePDctrl(Kp_right_foot, Kd_right_foot, N_torso, x_cmd_right_foot,
+  //                  xd_cmd_right_foot, qd_torso, qdd_torso, right_foot,
+  //                  "both");
   // print right foot position
   // auto [x_left_foot_trans, x_left_foot_rpy] = GetPosInWorld(left_foot);
   // auto [x_right_foot_trans, x_right_foot_rpy] = GetPosInWorld(right_foot);
@@ -454,8 +450,8 @@ Eigen::VectorXd WBController::CalcTorque(Eigen::VectorXd desired_position,
   Eigen::VectorXd q_cmd = desired_position.tail(num_q_);
   Eigen::VectorXd qd_cmd = Eigen::VectorXd::Zero(num_q_);
   auto [qd_pose, qdd_pose, N_pose] =
-      NspacePoseCtrl(S_float_, Kp_pose, Kd_pose, N_right_foot, q_cmd, qd_cmd,
-                     q_pose, qd_right_foot, qdd_right_foot);
+      NspacePoseCtrl(S_float_, Kp_pose, Kd_pose, N_torso, q_cmd, qd_cmd, q_pose,
+                     qd_torso, qdd_torso);
 
   // return M_ * qdd_right_foot +
   //        N_right_foot.transpose() * (tau_def_pose + bv_ - tau_g_);
