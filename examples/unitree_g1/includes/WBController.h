@@ -61,10 +61,10 @@ class WBController {
       const Eigen::VectorXd& x_cmd, const Eigen::VectorXd& xd_cmd,
       const Eigen::VectorXd& Jd_qd_task, const Eigen::VectorXd& state_qd,
       const Eigen::VectorXd& state_qdd, const Eigen::MatrixXd& N_pre,
-      const double& Kp_task, const double& Kd_task);
+      const Eigen::VectorXd& Kp_task, const Eigen::VectorXd& Kd_task);
 
   std::tuple<Eigen::VectorXd, Eigen::VectorXd, Eigen::MatrixXd> NspacePDctrl(
-      const double& Kp_task, const double& Kd_task,
+      const Eigen::VectorXd& Kp_task, const Eigen::VectorXd& Kd_task,
       const Eigen::MatrixXd& N_pre, const Eigen::VectorXd x_cmd,
       const Eigen::VectorXd xd_cmd, const Eigen::VectorXd& state_qd,
       const Eigen::VectorXd& state_qdd,
@@ -72,7 +72,7 @@ class WBController {
       const Eigen::MatrixXd& S_task);
 
   std::tuple<Eigen::VectorXd, Eigen::VectorXd, Eigen::MatrixXd> NspaceContactrl(
-      const double& Kp_task, const double& Kd_task,
+      const Eigen::VectorXd& Kp_task, const Eigen::VectorXd& Kd_task,
       const Eigen::MatrixXd& N_pre, const Eigen::VectorXd x_cmd,
       const Eigen::VectorXd xd_cmd, const Eigen::VectorXd& state_qd,
       const Eigen::VectorXd& state_qdd,
@@ -80,7 +80,7 @@ class WBController {
       const Eigen::MatrixXd& S_task);
 
   std::tuple<Eigen::VectorXd, Eigen::VectorXd, Eigen::MatrixXd> NspaceCoMctrl(
-      const double& Kp_task, const double& Kd_task,
+      const Eigen::VectorXd& Kp_task, const Eigen::VectorXd& Kd_task,
       const Eigen::MatrixXd& N_pre, const Eigen::VectorXd x_cmd,
       const Eigen::VectorXd xd_cmd, const Eigen::VectorXd& state_qd,
       const Eigen::VectorXd& state_qdd);

@@ -57,14 +57,13 @@ WBController::WBController(
 }
 
 // Shared helper function for task-space PD computation with velocity-projected
-// foot target
 std::tuple<Eigen::VectorXd, Eigen::VectorXd, Eigen::MatrixXd>
 WBController::ComputeTaskSpaceAccel(
     const Eigen::MatrixXd& J_task, const Eigen::VectorXd& x_task,
     const Eigen::VectorXd& x_cmd, const Eigen::VectorXd& xd_cmd,
     const Eigen::VectorXd& Jd_qd_task, const Eigen::VectorXd& state_qd,
     const Eigen::VectorXd& state_qdd, const Eigen::MatrixXd& N_pre,
-    const double& Kp_task, const double& Kd_task) {
+    const Eigen::VectorXd& Kp_task, const Eigen::VectorXd& Kd_task) {
   // Compute the pseudo-inverse of the Jacobian
   Eigen::MatrixXd J_dyn_pinv = ComputeJacobianPseudoInv(J_task, M_inv_, N_pre);
 
@@ -83,12 +82,12 @@ WBController::ComputeTaskSpaceAccel(
 
   // 3. Fast critical damping: D_task = 2 * sqrt(Lambda * Kp)
   Eigen::VectorXd D_diag =
-      2.0 * Lambda_diag.array().sqrt() * std::sqrt(Kp_task);
+      (2.0 * Lambda_diag.array().sqrt() * Kp_task.array().sqrt()).matrix();
 
   // 4. Task-space desired acceleration
   Eigen::VectorXd xdd_des =
-      Lambda_inv *
-      (Kp_task * (x_cmd - x_task) + D_diag.asDiagonal() * (xd_cmd - xd_task));
+      Lambda_inv * (Kp_task.asDiagonal() * (x_cmd - x_task) +
+                    D_diag.asDiagonal() * (xd_cmd - xd_task));
   // Compute the task-space Velocity
   Eigen::VectorXd qd_task = N_task * state_qd;
   // Compute desired acceleration
@@ -103,7 +102,8 @@ WBController::ComputeTaskSpaceAccel(
 }
 
 std::tuple<Eigen::VectorXd, Eigen::VectorXd, Eigen::MatrixXd>
-WBController::NspaceCoMctrl(const double& Kp_task, const double& Kd_task,
+WBController::NspaceCoMctrl(const Eigen::VectorXd& Kp_task,
+                            const Eigen::VectorXd& Kd_task,
                             const Eigen::MatrixXd& N_pre,
                             const Eigen::VectorXd x_cmd,
                             const Eigen::VectorXd xd_cmd,
@@ -130,7 +130,8 @@ WBController::NspaceCoMctrl(const double& Kp_task, const double& Kd_task,
 }
 
 std::tuple<Eigen::VectorXd, Eigen::VectorXd, Eigen::MatrixXd>
-WBController::NspaceContactrl(const double& Kp_task, const double& Kd_task,
+WBController::NspaceContactrl(const Eigen::VectorXd& Kp_task,
+                              const Eigen::VectorXd& Kd_task,
                               const Eigen::MatrixXd& N_pre,
                               const Eigen::VectorXd x_cmd,
                               const Eigen::VectorXd xd_cmd,
@@ -162,6 +163,8 @@ WBController::NspaceContactrl(const double& Kp_task, const double& Kd_task,
   Eigen::VectorXd x_task = S_task * x_full;
   Eigen::MatrixXd J_task = S_task * J_full;
   Eigen::VectorXd Jd_qd_task = S_task * Jd_qd_full;
+  Eigen::VectorXd Kp = S_task * Kp_task;
+  Eigen::VectorXd Kd = S_task * Kd_task;
 
   // Compute the pseudo-inverse of the Jacobian
   Eigen::MatrixXd J_dyn_pinv = ComputeJacobianPseudoInv(J_task, M_inv_, N_pre);
@@ -185,11 +188,12 @@ WBController::NspaceContactrl(const double& Kp_task, const double& Kd_task,
   }
 
   return ComputeTaskSpaceAccel(J_task, x_task, x_cmd, xd_cmd, Jd_qd_task,
-                               state_qd, qdd_task, N_pre, Kp_task, Kd_task);
+                               state_qd, qdd_task, N_pre, Kp, Kd);
 }
 
 std::tuple<Eigen::VectorXd, Eigen::VectorXd, Eigen::MatrixXd>
-WBController::NspacePDctrl(const double& Kp_task, const double& Kd_task,
+WBController::NspacePDctrl(const Eigen::VectorXd& Kp_task,
+                           const Eigen::VectorXd& Kd_task,
                            const Eigen::MatrixXd& N_pre,
                            const Eigen::VectorXd x_cmd,
                            const Eigen::VectorXd xd_cmd,
@@ -221,9 +225,11 @@ WBController::NspacePDctrl(const double& Kp_task, const double& Kd_task,
   Eigen::VectorXd x_task = S_task * x_full;
   Eigen::MatrixXd J_task = S_task * J_full;
   Eigen::VectorXd Jd_qd_task = S_task * Jd_qd_full;
+  Eigen::VectorXd Kp = S_task * Kp_task;
+  Eigen::VectorXd Kd = S_task * Kd_task;
 
   return ComputeTaskSpaceAccel(J_task, x_task, x_cmd, xd_cmd, Jd_qd_task,
-                               state_qd, state_qdd, N_pre, Kp_task, Kd_task);
+                               state_qd, state_qdd, N_pre, Kp, Kd);
 }
 
 std::tuple<Eigen::VectorXd, Eigen::VectorXd, Eigen::MatrixXd>
@@ -361,8 +367,8 @@ Eigen::VectorXd WBController::CalcTorque(Eigen::VectorXd desired_position,
   // Compute the desired acceleration for the foot contact task
   const auto& left_foot = plant_.GetBodyByName("left_ankle_roll_link");
 
-  double Kp_left_foot = 250.0;
-  double Kd_left_foot = 0.7;
+  Eigen::VectorXd Kp_left_foot = 250.0 * Eigen::VectorXd::Ones(6);
+  Eigen::VectorXd Kd_left_foot = 0.7 * Eigen::VectorXd::Ones(6);
   Eigen::VectorXd x_cmd_left_foot(6);
   x_cmd_left_foot << 0.0, 0.0, 0.04, 0.0, 0.0, 0.0;
   Eigen::VectorXd xd_cmd_left_foot(6);
@@ -392,8 +398,8 @@ Eigen::VectorXd WBController::CalcTorque(Eigen::VectorXd desired_position,
   auto [x_torso_trans, x_torso_rpy] = GetPosInWorld(torso);
   auto [x_lfoot_trans, x_lfoot_rpy] = GetPosInWorld(left_foot);
 
-  double Kp_torso = 250.0;
-  double Kd_torso = 0.7;
+  Eigen::VectorXd Kp_torso = 250.0 * Eigen::VectorXd::Ones(6);
+  Eigen::VectorXd Kd_torso = 0.7 * Eigen::VectorXd::Ones(6);
   Eigen::VectorXd x_cmd_torso(6);
   x_cmd_torso.head(3) = x_torso_trans + (x_lfoot_trans - x_com);
   x_cmd_torso[2] = 0.5 + x_lfoot_trans[2];
